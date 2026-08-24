@@ -240,19 +240,25 @@ class RobinSidebar extends StatelessWidget {
     List<_MenuItem> visible(List<_MenuItem> items) =>
         items.where((item) => allowed.contains(item.index)).toList();
 
+    final businessItems = profile.isDealer
+        ? const [
+            _MenuItem(Icons.architecture_outlined, '컨셉도면 송수신', 1),
+            _MenuItem(Icons.gavel_outlined, '내 입찰', 2),
+            _MenuItem(Icons.view_timeline_outlined, '진행단계 조회', 3),
+          ]
+        : const [
+            _MenuItem(Icons.account_tree_outlined, '파이프라인 등록', 1, badge: '6'),
+            _MenuItem(Icons.request_quote_outlined, '수주관리', 2),
+            _MenuItem(Icons.view_timeline_outlined, '프로젝트 관리', 3),
+          ];
+
     return [
       _MenuGroup(
           '홈',
           visible(const [
             _MenuItem(Icons.home_outlined, 'Home', 0),
           ])),
-      _MenuGroup(
-          '수주/프로젝트 관리',
-          visible(const [
-            _MenuItem(Icons.account_tree_outlined, '파이프라인 등록', 1, badge: '6'),
-            _MenuItem(Icons.request_quote_outlined, '수주관리', 2),
-            _MenuItem(Icons.view_timeline_outlined, '프로젝트 관리', 3),
-          ])),
+      _MenuGroup('수주/프로젝트 관리', visible(businessItems)),
       _MenuGroup(
           'AX Board',
           visible(const [
@@ -268,12 +274,15 @@ class RobinSidebar extends StatelessWidget {
             ? const [
                 _MenuItem(Icons.sync_alt_outlined, '연계 모니터링', 9),
                 _MenuItem(Icons.people_alt_outlined, '직원 관리', 10),
-                _MenuItem(Icons.admin_panel_settings_outlined, '권한 관리', 11),
-                _MenuItem(Icons.person_outline, '마이페이지', 12),
+                _MenuItem(Icons.groups_2_outlined, '팀 관리', 11),
+                _MenuItem(Icons.admin_panel_settings_outlined, '권한 관리', 12),
+                _MenuItem(Icons.person_outline, '마이페이지', 13),
               ]
-            : const [
-                _MenuItem(Icons.person_outline, '마이페이지', 12),
-              ],
+            : profile.isDealer
+                ? const []
+                : const [
+                    _MenuItem(Icons.person_outline, '마이페이지', 13),
+                  ],
       ),
     ].where((group) => group.items.isNotEmpty).toList();
   }

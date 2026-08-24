@@ -16,7 +16,13 @@ class AppShell extends StatefulWidget {
 }
 
 class _AppShellState extends State<AppShell> {
-  int _selectedIndex = 0;
+  late int _selectedIndex;
+
+  @override
+  void initState() {
+    super.initState();
+    _selectedIndex = robinUserProfile.value.isDealer ? 1 : 0;
+  }
 
   Widget _buildScreen(int index) {
     switch (index) {
@@ -46,8 +52,10 @@ class _AppShellState extends State<AppShell> {
       case 10:
         return const EmployeeManagementScreen();
       case 11:
-        return const PermissionManagementScreen();
+        return const TeamManagementScreen();
       case 12:
+        return const PermissionManagementScreen();
+      case 13:
         return const PortalModuleScreen(type: PortalModule.myPage);
       default:
         return _PlaceholderScreen(label: _menuLabels[index]);
@@ -59,7 +67,7 @@ class _AppShellState extends State<AppShell> {
     final allowedBusinessTabs =
         departmentTabPermissions.value[profile.departmentPermission] ?? {0};
     final allowed = profile.isAdmin ||
-        index == 12 ||
+        (index == 13 && !profile.isDealer) ||
         (index <= 8 && allowedBusinessTabs.contains(index));
     if (!allowed) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -82,6 +90,7 @@ class _AppShellState extends State<AppShell> {
     '자주 묻는 질문',
     '연계 모니터링',
     '직원 관리',
+    '팀 관리',
     '권한 관리',
     '마이페이지',
   ];

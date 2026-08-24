@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:intl/intl.dart';
 
 import '../models/access_control.dart';
 import '../models/order_project.dart';
@@ -247,7 +248,6 @@ class _PipelineViewState extends State<_PipelineView> {
     'Negotiation',
     'Closed Won',
     'Closed Lost',
-    '수주 중단',
   ];
 
   @override
@@ -258,7 +258,6 @@ class _PipelineViewState extends State<_PipelineView> {
       ('Negotiation', Color(0xFFF59E0B)),
       ('Closed Won', RobinTheme.signalGreen),
       ('Closed Lost', RobinTheme.signalRed),
-      ('수주 중단', Color(0xFF8B5CF6)),
     ];
     final filteredLeads = _leads.where(_matchesFilters).toList();
     return Column(
@@ -2394,11 +2393,11 @@ class _OrganizationAppsView extends StatelessWidget {
                       final pending = requests.any((request) {
                         if (request.employeeId != profile.username ||
                             request.status != PermissionRequestStatus.pending ||
-                            request.requestedPythonGroupId == null) {
+                            request.requestedPythonGroupIds.isEmpty) {
                           return false;
                         }
                         return availableGroups.any((group) =>
-                            group.id == request.requestedPythonGroupId);
+                            request.requestedPythonGroupIds.contains(group.id));
                       });
                       final granted = allowedActionIds.isNotEmpty;
                       final status = profile.isAdmin
@@ -2543,14 +2542,21 @@ class _OrganizationAppsView extends StatelessWidget {
             .fold<int>(0, (max, item) => item.id > max ? item.id : max) +
         1;
     final profile = robinUserProfile.value;
+    final now = DateTime.now();
     robinPermissionRequests.value = [
       RobinPermissionRequest(
         id: nextId,
+        documentNo:
+            'RBN-APR-${DateFormat('yyyyMMdd').format(now)}-${nextId.toString().padLeft(3, '0')}',
+        title: '${pythonGroupName(selectedGroupId)} 권한 신청',
         employeeId: profile.username,
+        requesterId: profile.username,
         requestType: 'Python 그룹 권한',
-        requestedPythonGroupId: selectedGroupId,
+        requestedRole: profile.role,
+        requestedDepartment: profile.departmentPermission,
+        requestedPythonGroupIds: {selectedGroupId},
         reason: '${pythonGroupName(selectedGroupId)} 사용 신청',
-        requestedAt: DateTime.now(),
+        requestedAt: now,
       ),
       ...robinPermissionRequests.value,
     ];
@@ -2757,35 +2763,63 @@ class _MyPageView extends StatelessWidget {
                 RobinTheme.primary,
               ),
               const SizedBox(width: 10),
-              _myStat('권한 신청 진행', '1건', Icons.approval_outlined,
-                  RobinTheme.signalYellow),
+              ValueListenableBuilder<RobinUserProfile>(
+                valueListenable: robinUserProfile,
+                builder: (context, profile, _) =>
+                    ValueListenableBuilder<List<RobinPermissionRequest>>(
+                  valueListenable: robinPermissionRequests,
+                  builder: (context, requests, _) {
+                    final pendingCount = requests
+                        .where((request) =>
+                            (request.employeeId == profile.username ||
+                                request.requesterId == profile.username) &&
+                            request.status == PermissionRequestStatus.pending)
+                        .length;
+                    return _myStat(
+                      '권한 신청 진행',
+                      '$pendingCount건',
+                      Icons.approval_outlined,
+                      RobinTheme.signalYellow,
+                    );
+                  },
+                ),
+              ),
             ],
           ),
           const SizedBox(height: 14),
           Expanded(
-            child: Container(
-              decoration: _cardDecoration(),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Padding(
-                    padding: const EdgeInsets.fromLTRB(18, 16, 18, 12),
-                    child: Row(
-                      children: [
-                        Text('알림 기록', style: RobinTheme.headingSm),
-                        const SizedBox(width: 8),
-                        Text('업무 배정 및 상태 변경 이력', style: RobinTheme.labelXs),
+            child: DefaultTabController(
+              length: 2,
+              child: Container(
+                decoration: _cardDecoration(),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const TabBar(
+                      isScrollable: true,
+                      tabs: [
+                        Tab(text: '알림 기록'),
+                        Tab(
+                          key: ValueKey('my-permission-history-tab'),
+                          text: '내 권한 품의·결재 내역',
+                        ),
                       ],
                     ),
-                  ),
-                  const Divider(height: 1),
-                  Expanded(
-                    child: RobinNotificationList(
-                      onSelected: (notification) =>
-                          showRobinNotificationDetail(context, notification),
+                    const Divider(height: 1),
+                    Expanded(
+                      child: TabBarView(
+                        children: [
+                          RobinNotificationList(
+                            onSelected: (notification) =>
+                                showRobinNotificationDetail(
+                                    context, notification),
+                          ),
+                          const _MyPermissionRequestList(),
+                        ],
+                      ),
                     ),
-                  ),
-                ],
+                  ],
+                ),
               ),
             ),
           ),
@@ -2822,6 +2856,111 @@ class _MyPageView extends StatelessWidget {
             ),
           ],
         ),
+      ),
+    );
+  }
+}
+
+class _MyPermissionRequestList extends StatelessWidget {
+  const _MyPermissionRequestList();
+
+  @override
+  Widget build(BuildContext context) =>
+      ValueListenableBuilder<RobinUserProfile>(
+        valueListenable: robinUserProfile,
+        builder: (context, profile, _) =>
+            ValueListenableBuilder<List<RobinPermissionRequest>>(
+          valueListenable: robinPermissionRequests,
+          builder: (context, requests, _) {
+            final mine = requests
+                .where((request) =>
+                    request.employeeId == profile.username ||
+                    request.requesterId == profile.username)
+                .toList()
+              ..sort((a, b) => b.requestedAt.compareTo(a.requestedAt));
+            if (mine.isEmpty) {
+              return Center(
+                child: Text('내 권한 품의 내역이 없습니다.', style: RobinTheme.bodySm),
+              );
+            }
+            return ListView.separated(
+              padding: const EdgeInsets.all(12),
+              itemCount: mine.length,
+              separatorBuilder: (_, __) => const SizedBox(height: 10),
+              itemBuilder: (context, index) =>
+                  _myPermissionRequestCard(mine[index]),
+            );
+          },
+        ),
+      );
+
+  static Widget _myPermissionRequestCard(RobinPermissionRequest request) {
+    final color = switch (request.status) {
+      PermissionRequestStatus.pending => RobinTheme.signalYellow,
+      PermissionRequestStatus.approved => RobinTheme.signalGreen,
+      PermissionRequestStatus.rejected => RobinTheme.error,
+    };
+    final groups = request.requestedPythonGroupIds
+        .map(pythonGroupName)
+        .where((name) => name != '-')
+        .join(', ');
+    final permissions = [
+      if (request.requestedRole != null) request.requestedRole!.label,
+      if (request.requestedDepartment != null)
+        '${request.requestedDepartment!.label} 권한',
+      if (groups.isNotEmpty) groups,
+    ].join(' · ');
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: RobinTheme.background,
+        borderRadius: BorderRadius.circular(9),
+        border: Border.all(color: RobinTheme.border),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Expanded(
+                child: Text('${request.documentNo} · ${request.title}',
+                    style: RobinTheme.headingSm),
+              ),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
+                decoration: BoxDecoration(
+                  color: color.withValues(alpha: .1),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Text(
+                  request.status.label,
+                  style: RobinTheme.labelXs
+                      .copyWith(color: color, fontWeight: FontWeight.w700),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Text('신청 권한  $permissions', style: RobinTheme.bodySm),
+          const SizedBox(height: 4),
+          Text('품의 사유  ${request.reason}', style: RobinTheme.bodySm),
+          const SizedBox(height: 4),
+          Text(
+            '신청일  ${DateFormat('yyyy-MM-dd HH:mm').format(request.requestedAt)}',
+            style: RobinTheme.labelXs,
+          ),
+          if (request.status != PermissionRequestStatus.pending) ...[
+            const Divider(height: 18),
+            Text(
+              '결재자  ${employeeDisplayName(request.decidedBy ?? '')} · '
+              '${request.decidedAt == null ? '-' : DateFormat('yyyy-MM-dd HH:mm').format(request.decidedAt!)}',
+              style: RobinTheme.bodySm,
+            ),
+            const SizedBox(height: 4),
+            Text('결재 의견  ${request.decisionNote ?? '-'}',
+                style: RobinTheme.bodySm),
+          ],
+        ],
       ),
     );
   }
@@ -2877,10 +3016,12 @@ class _MyProfileCard extends StatelessWidget {
                               style: RobinTheme.headingLg),
                           const SizedBox(width: 8),
                           _profileBadge(
-                            profile.isAdmin ? '관리자' : '일반 직원',
+                            profile.role.label,
                             profile.isAdmin
                                 ? RobinTheme.primary
-                                : RobinTheme.signalGreen,
+                                : profile.isDealer
+                                    ? RobinTheme.warning
+                                    : RobinTheme.signalGreen,
                           ),
                           const Spacer(),
                           OutlinedButton.icon(
@@ -3055,7 +3196,7 @@ class _FaqView extends StatelessWidget {
       (
         '파이프라인',
         '수주 단계는 어떻게 변경하나요?',
-        '파이프라인 등록에서 프로젝트 카드를 선택하고 Assess, Proposal, Negotiation, Closed Won/Lost 또는 수주 중단을 지정하세요.'
+        '파이프라인 등록에서 프로젝트 카드를 선택하고 Assess, Proposal, Negotiation, Closed Won/Lost를 지정하거나 어느 단계에서든 Drop 처리하세요.'
       ),
       (
         '프로젝트',
@@ -3243,8 +3384,7 @@ class _PipelineFilterBar extends StatelessWidget {
                       'Proposal',
                       'Negotiation',
                       'Closed Won',
-                      'Closed Lost',
-                      '수주 중단'
+                      'Closed Lost'
                     ],
                     onChanged: onStageChanged,
                   ),

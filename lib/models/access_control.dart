@@ -11,6 +11,69 @@ enum RobinDepartmentPermission {
   const RobinDepartmentPermission(this.label);
 }
 
+enum RobinAccountRole {
+  admin('관리자'),
+  employee('직원'),
+  dealer('대리점');
+
+  final String label;
+  const RobinAccountRole(this.label);
+
+  static RobinAccountRole fromApi(String? value) {
+    switch (value?.trim().toUpperCase()) {
+      case 'ADMIN':
+        return RobinAccountRole.admin;
+      case 'DEALER':
+        return RobinAccountRole.dealer;
+      default:
+        return RobinAccountRole.employee;
+    }
+  }
+}
+
+enum RobinBusinessDivision {
+  robot('로봇사업부'),
+  platformModule('플랫폼·모듈 사업담당'),
+  common('공통조직');
+
+  final String label;
+  const RobinBusinessDivision(this.label);
+}
+
+class RobinTeam {
+  final String id;
+  final String name;
+  final String department;
+  final RobinBusinessDivision division;
+  final String? leaderId;
+  final Set<String> memberIds;
+
+  const RobinTeam({
+    required this.id,
+    required this.name,
+    required this.department,
+    required this.division,
+    this.leaderId,
+    this.memberIds = const {},
+  });
+
+  RobinTeam copyWith({
+    String? name,
+    String? department,
+    RobinBusinessDivision? division,
+    String? leaderId,
+    Set<String>? memberIds,
+  }) =>
+      RobinTeam(
+        id: id,
+        name: name ?? this.name,
+        department: department ?? this.department,
+        division: division ?? this.division,
+        leaderId: leaderId ?? this.leaderId,
+        memberIds: memberIds ?? this.memberIds,
+      );
+}
+
 class PortalTabPermission {
   final int index;
   final String label;
@@ -37,7 +100,7 @@ final departmentTabPermissions =
   RobinDepartmentPermission.sales: {0, 1, 2, 3, 4, 5, 6, 7, 8},
   RobinDepartmentPermission.engineering: {0, 3, 4, 5, 6, 7, 8},
   RobinDepartmentPermission.manufacturing: {0, 3, 4, 6, 7, 8},
-  RobinDepartmentPermission.dealer: {0, 1, 2, 3, 5, 6, 7, 8},
+  RobinDepartmentPermission.dealer: {1, 2, 3},
 });
 
 class PythonActionPermission {
@@ -164,7 +227,7 @@ class RobinEmployee {
   final String department;
   final String email;
   final String phone;
-  final bool isAdmin;
+  final RobinAccountRole role;
   final RobinDepartmentPermission departmentPermission;
   final Set<String> pythonGroupIds;
   final bool active;
@@ -176,11 +239,14 @@ class RobinEmployee {
     required this.department,
     required this.email,
     required this.phone,
-    required this.isAdmin,
+    required this.role,
     required this.departmentPermission,
     this.pythonGroupIds = const {},
     this.active = true,
   });
+
+  bool get isAdmin => role == RobinAccountRole.admin;
+  bool get isDealer => role == RobinAccountRole.dealer;
 
   RobinEmployee copyWith({
     String? name,
@@ -188,7 +254,7 @@ class RobinEmployee {
     String? department,
     String? email,
     String? phone,
-    bool? isAdmin,
+    RobinAccountRole? role,
     RobinDepartmentPermission? departmentPermission,
     Set<String>? pythonGroupIds,
     bool? active,
@@ -200,7 +266,7 @@ class RobinEmployee {
         department: department ?? this.department,
         email: email ?? this.email,
         phone: phone ?? this.phone,
-        isAdmin: isAdmin ?? this.isAdmin,
+        role: role ?? this.role,
         departmentPermission: departmentPermission ?? this.departmentPermission,
         pythonGroupIds: pythonGroupIds ?? this.pythonGroupIds,
         active: active ?? this.active,
@@ -215,7 +281,7 @@ final robinEmployees = ValueNotifier<List<RobinEmployee>>([
     department: '인사/지원실',
     email: 'robin.kim@robostar.com',
     phone: '010-1234-5678',
-    isAdmin: true,
+    role: RobinAccountRole.admin,
     departmentPermission: RobinDepartmentPermission.hr,
   ),
   const RobinEmployee(
@@ -225,8 +291,103 @@ final robinEmployees = ValueNotifier<List<RobinEmployee>>([
     department: '영업',
     email: 'robin.park@robostar.com',
     phone: '010-2345-6789',
-    isAdmin: false,
+    role: RobinAccountRole.employee,
     departmentPermission: RobinDepartmentPermission.sales,
+  ),
+  const RobinEmployee(
+    id: 'robot_sales_staff_2',
+    name: '정영업',
+    rank: '대리',
+    department: '영업',
+    email: 'sales.jeong@robostar.com',
+    phone: '010-2356-7890',
+    role: RobinAccountRole.employee,
+    departmentPermission: RobinDepartmentPermission.sales,
+  ),
+  const RobinEmployee(
+    id: 'robot_sales_staff_3',
+    name: '한로봇',
+    rank: '사원',
+    department: '영업',
+    email: 'robot.han@robostar.com',
+    phone: '010-2367-8901',
+    role: RobinAccountRole.employee,
+    departmentPermission: RobinDepartmentPermission.sales,
+  ),
+  const RobinEmployee(
+    id: 'dealer',
+    name: '이대리점',
+    rank: '담당자',
+    department: '서울 대리점',
+    email: 'dealer.seoul@example.com',
+    phone: '010-3456-7890',
+    role: RobinAccountRole.dealer,
+    departmentPermission: RobinDepartmentPermission.dealer,
+  ),
+  const RobinEmployee(
+    id: 'kimdealer',
+    name: '김대리점',
+    rank: '담당자',
+    department: '서울 대리점',
+    email: 'dealer.kim@example.com',
+    phone: '010-3456-7891',
+    role: RobinAccountRole.dealer,
+    departmentPermission: RobinDepartmentPermission.dealer,
+  ),
+  const RobinEmployee(
+    id: 'platform_staff',
+    name: '최플랫폼',
+    rank: '책임',
+    department: '플랫폼·모듈 영업',
+    email: 'platform.choi@robostar.com',
+    phone: '010-4567-8901',
+    role: RobinAccountRole.employee,
+    departmentPermission: RobinDepartmentPermission.sales,
+  ),
+  const RobinEmployee(
+    id: 'engineer',
+    name: '이설계',
+    rank: '책임',
+    department: '설계',
+    email: 'engineering.lee@robostar.com',
+    phone: '010-5678-9012',
+    role: RobinAccountRole.employee,
+    departmentPermission: RobinDepartmentPermission.engineering,
+  ),
+]);
+
+final robinTeams = ValueNotifier<List<RobinTeam>>([
+  const RobinTeam(
+    id: 'robot_sales_1',
+    name: '로봇 영업1팀',
+    department: '영업',
+    division: RobinBusinessDivision.robot,
+    leaderId: 'staff',
+    memberIds: {'staff', 'robot_sales_staff_2', 'robot_sales_staff_3'},
+  ),
+  const RobinTeam(
+    id: 'robot_engineering_1',
+    name: '로봇 설계1팀',
+    department: '설계',
+    division: RobinBusinessDivision.robot,
+    leaderId: 'engineer',
+    memberIds: {'engineer'},
+  ),
+  const RobinTeam(
+    id: 'platform_sales',
+    name: '플랫폼·모듈 영업팀',
+    department: '영업',
+    division: RobinBusinessDivision.platformModule,
+    leaderId: 'platform_staff',
+    memberIds: {'platform_staff'},
+  ),
+  const RobinTeam(
+    id: 'common_support',
+    name: '경영지원팀',
+    department: '인사/지원실',
+    division: RobinBusinessDivision.common,
+    leaderId: 'admin',
+    memberIds: {'admin'},
   ),
 ]);
 
@@ -241,54 +402,92 @@ enum PermissionRequestStatus {
 
 class RobinPermissionRequest {
   final int id;
+  final String documentNo;
+  final String title;
   final String employeeId;
+  final String requesterId;
   final String requestType;
+  final RobinAccountRole? requestedRole;
   final RobinDepartmentPermission? requestedDepartment;
-  final String? requestedPythonGroupId;
+  final Set<String> requestedPythonGroupIds;
   final String reason;
   final DateTime requestedAt;
   final PermissionRequestStatus status;
+  final String? decidedBy;
+  final DateTime? decidedAt;
+  final String? decisionNote;
 
   const RobinPermissionRequest({
     required this.id,
+    required this.documentNo,
+    required this.title,
     required this.employeeId,
+    required this.requesterId,
     required this.requestType,
+    this.requestedRole,
     this.requestedDepartment,
-    this.requestedPythonGroupId,
+    this.requestedPythonGroupIds = const {},
     required this.reason,
     required this.requestedAt,
     this.status = PermissionRequestStatus.pending,
+    this.decidedBy,
+    this.decidedAt,
+    this.decisionNote,
   });
 
-  RobinPermissionRequest copyWith({PermissionRequestStatus? status}) =>
+  RobinPermissionRequest copyWith({
+    PermissionRequestStatus? status,
+    String? decidedBy,
+    DateTime? decidedAt,
+    String? decisionNote,
+  }) =>
       RobinPermissionRequest(
         id: id,
+        documentNo: documentNo,
+        title: title,
         employeeId: employeeId,
+        requesterId: requesterId,
         requestType: requestType,
+        requestedRole: requestedRole,
         requestedDepartment: requestedDepartment,
-        requestedPythonGroupId: requestedPythonGroupId,
+        requestedPythonGroupIds: requestedPythonGroupIds,
         reason: reason,
         requestedAt: requestedAt,
         status: status ?? this.status,
+        decidedBy: decidedBy ?? this.decidedBy,
+        decidedAt: decidedAt ?? this.decidedAt,
+        decisionNote: decisionNote ?? this.decisionNote,
       );
 }
 
 final robinPermissionRequests = ValueNotifier<List<RobinPermissionRequest>>([
   RobinPermissionRequest(
     id: 1,
+    documentNo: 'RBN-APR-20260730-001',
+    title: '영업 분석 Python 그룹 권한 신청',
     employeeId: 'staff',
+    requesterId: 'staff',
     requestType: 'Python 그룹 권한',
-    requestedPythonGroupId: 'sales_python',
+    requestedRole: RobinAccountRole.employee,
+    requestedPythonGroupIds: {'sales_python'},
     reason: '영업 방문차량 및 분석 업무',
     requestedAt: DateTime(2026, 7, 30, 9, 20),
   ),
   RobinPermissionRequest(
     id: 2,
+    documentNo: 'RBN-APR-20260729-002',
+    title: '신규 입사자 ROBIN 기본 권한 신청',
     employeeId: 'new_employee',
+    requesterId: 'admin',
     requestType: '최초 가입 권한',
+    requestedRole: RobinAccountRole.employee,
     requestedDepartment: RobinDepartmentPermission.engineering,
     reason: '신규 입사자 기본 권한 신청',
     requestedAt: DateTime(2026, 7, 29, 16, 10),
+    status: PermissionRequestStatus.approved,
+    decidedBy: 'admin',
+    decidedAt: DateTime(2026, 7, 29, 17, 5),
+    decisionNote: '설계부서 기본 권한 확인 후 승인',
   ),
 ]);
 

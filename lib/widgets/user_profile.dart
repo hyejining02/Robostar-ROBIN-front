@@ -9,7 +9,7 @@ class RobinUserProfile {
   final String email;
   final String phone;
   final String username;
-  final bool isAdmin;
+  final RobinAccountRole role;
   final RobinDepartmentPermission departmentPermission;
 
   const RobinUserProfile({
@@ -19,9 +19,12 @@ class RobinUserProfile {
     required this.email,
     required this.phone,
     required this.username,
-    required this.isAdmin,
+    required this.role,
     required this.departmentPermission,
   });
+
+  bool get isAdmin => role == RobinAccountRole.admin;
+  bool get isDealer => role == RobinAccountRole.dealer;
 }
 
 final robinUserProfile = ValueNotifier<RobinUserProfile>(
@@ -32,7 +35,7 @@ final robinUserProfile = ValueNotifier<RobinUserProfile>(
     email: 'robin.kim@robostar.com',
     phone: '010-1234-5678',
     username: 'admin',
-    isAdmin: true,
+    role: RobinAccountRole.admin,
     departmentPermission: RobinDepartmentPermission.hr,
   ),
 );
@@ -46,8 +49,9 @@ void activateRobinAccount(String username, {String? role}) {
     }
   }
 
+  final requestedRole = RobinAccountRole.fromApi(role);
   account ??= robinEmployees.value.firstWhere(
-    (employee) => employee.isAdmin == (role == 'ADMIN'),
+    (employee) => employee.role == requestedRole,
     orElse: () => robinEmployees.value.first,
   );
   robinUserProfile.value = RobinUserProfile(
@@ -57,7 +61,7 @@ void activateRobinAccount(String username, {String? role}) {
     email: account.email,
     phone: account.phone,
     username: account.id,
-    isAdmin: account.isAdmin,
+    role: account.role,
     departmentPermission: account.departmentPermission,
   );
 }
@@ -194,7 +198,7 @@ class _ProfileEditorDialogState extends State<_ProfileEditorDialog> {
         email: _emailController.text.trim(),
         phone: _phoneController.text.trim(),
         username: widget.profile.username,
-        isAdmin: widget.profile.isAdmin,
+        role: widget.profile.role,
         departmentPermission: widget.profile.departmentPermission,
       ),
     );

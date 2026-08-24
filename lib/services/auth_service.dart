@@ -18,6 +18,16 @@ class AuthService {
         'name': '박로빈',
         'role': 'EMPLOYEE',
       },
+      'dealer': {
+        'password': '1234',
+        'name': '이대리점',
+        'role': 'DEALER',
+      },
+      'kimdealer': {
+        'password': '1234',
+        'name': '김대리점',
+        'role': 'DEALER',
+      },
     };
     final demo = demoAccounts[username];
     if (demo != null) {

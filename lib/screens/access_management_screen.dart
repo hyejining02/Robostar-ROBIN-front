@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart' show setEquals;
 import 'package:intl/intl.dart';
 
 import '../models/access_control.dart';
@@ -73,7 +74,7 @@ class EmployeeManagementScreen extends StatelessWidget {
                               children: [
                                 Text('${employee.name} ${employee.rank}',
                                     style: RobinTheme.headingSm),
-                                Text(employee.isAdmin ? '관리자' : '일반 직원',
+                                Text(employee.role.label,
                                     style: RobinTheme.labelXs),
                               ],
                             )),
@@ -155,16 +156,28 @@ class EmployeeManagementScreen extends StatelessWidget {
     final nameController = TextEditingController(text: employee?.name ?? '');
     final emailController = TextEditingController(text: employee?.email ?? '');
     final phoneController = TextEditingController(text: employee?.phone ?? '');
+    final approvalTitleController = TextEditingController();
+    final approvalReasonController = TextEditingController();
     var rank = employee?.rank ?? '사원';
     var department = employee?.department ?? '영업';
     var departmentPermission =
         employee?.departmentPermission ?? RobinDepartmentPermission.sales;
+    var role = employee?.role ?? RobinAccountRole.employee;
     var active = employee?.active ?? true;
     final currentAccount = employee?.id == robinUserProfile.value.username;
     final selectedPythonGroupIds = <String>{
       ...?employee?.pythonGroupIds,
     };
-    const ranks = ['사원', '선임', '책임', '수석', '팀장'];
+    final ranks = <String>{
+      '사원',
+      '대리',
+      '선임',
+      '책임',
+      '수석',
+      '팀장',
+      '담당자',
+      if (employee != null) employee.rank,
+    }.toList();
     final departments = <String>{
       '인사/지원실',
       '영업',
@@ -209,9 +222,33 @@ class EmployeeManagementScreen extends StatelessWidget {
                       ),
                     ]),
                     const SizedBox(height: 12),
+                    DropdownButtonFormField<RobinAccountRole>(
+                      initialValue: role,
+                      decoration: const InputDecoration(
+                          labelText: '계정 역할', border: OutlineInputBorder()),
+                      items: RobinAccountRole.values
+                          .map((item) => DropdownMenuItem(
+                              value: item, child: Text(item.label)))
+                          .toList(),
+                      onChanged: currentAccount
+                          ? null
+                          : (value) {
+                              if (value == null) return;
+                              setDialogState(() {
+                                role = value;
+                                if (value == RobinAccountRole.dealer) {
+                                  department = '대리점';
+                                  departmentPermission =
+                                      RobinDepartmentPermission.dealer;
+                                }
+                              });
+                            },
+                    ),
+                    const SizedBox(height: 12),
                     Row(children: [
                       Expanded(
                         child: DropdownButtonFormField<String>(
+                          key: ValueKey('department-$department'),
                           initialValue: department,
                           decoration: const InputDecoration(
                               labelText: '부서', border: OutlineInputBorder()),
@@ -230,6 +267,8 @@ class EmployeeManagementScreen extends StatelessWidget {
                       Expanded(
                         child:
                             DropdownButtonFormField<RobinDepartmentPermission>(
+                          key: ValueKey(
+                              'department-permission-${departmentPermission.name}'),
                           initialValue: departmentPermission,
                           decoration: const InputDecoration(
                               labelText: '부서 권한', border: OutlineInputBorder()),
@@ -279,6 +318,62 @@ class EmployeeManagementScreen extends StatelessWidget {
                         }),
                       );
                     }),
+                    if (editing) ...[
+                      const Divider(height: 28),
+                      Align(
+                        alignment: Alignment.centerLeft,
+                        child: Text('권한 변경 품의', style: RobinTheme.headingSm),
+                      ),
+                      const SizedBox(height: 5),
+                      Text(
+                        '계정 역할·부서 권한·Python 그룹이 변경되면 즉시 반영하지 않고 결재 대기 건을 생성합니다.',
+                        style: RobinTheme.bodySm,
+                      ),
+                      const SizedBox(height: 10),
+                      TextFormField(
+                        key: const ValueKey('permission-approval-title'),
+                        controller: approvalTitleController,
+                        decoration: const InputDecoration(
+                          labelText: '품의 제목 (권한 변경 시 필수)',
+                          border: OutlineInputBorder(),
+                        ),
+                        validator: (value) {
+                          final permissionChanged = role != employee.role ||
+                              departmentPermission !=
+                                  employee.departmentPermission ||
+                              !setEquals(selectedPythonGroupIds,
+                                  employee.pythonGroupIds);
+                          if (permissionChanged &&
+                              (value?.trim().isEmpty ?? true)) {
+                            return '권한 변경 품의 제목을 입력해주세요.';
+                          }
+                          return null;
+                        },
+                      ),
+                      const SizedBox(height: 10),
+                      TextFormField(
+                        key: const ValueKey('permission-approval-reason'),
+                        controller: approvalReasonController,
+                        minLines: 2,
+                        maxLines: 3,
+                        decoration: const InputDecoration(
+                          labelText: '품의 사유 (권한 변경 시 필수)',
+                          border: OutlineInputBorder(),
+                        ),
+                        validator: (value) {
+                          final permissionChanged = role != employee.role ||
+                              departmentPermission !=
+                                  employee.departmentPermission ||
+                              !setEquals(selectedPythonGroupIds,
+                                  employee.pythonGroupIds);
+                          if (permissionChanged &&
+                              (value?.trim().isEmpty ?? true)) {
+                            return '권한 변경 사유를 입력해주세요.';
+                          }
+                          return null;
+                        },
+                      ),
+                    ],
                     SwitchListTile(
                       contentPadding: EdgeInsets.zero,
                       value: active,
@@ -311,29 +406,75 @@ class EmployeeManagementScreen extends StatelessWidget {
                   department: department,
                   email: emailController.text.trim(),
                   phone: phoneController.text.trim(),
-                  isAdmin: employee?.isAdmin ?? false,
+                  role: role,
                   departmentPermission: departmentPermission,
                   pythonGroupIds: {...selectedPythonGroupIds},
                   active: active,
                 );
                 if (editing) {
+                  final permissionChanged = role != employee.role ||
+                      departmentPermission != employee.departmentPermission ||
+                      !setEquals(
+                          selectedPythonGroupIds, employee.pythonGroupIds);
+                  final savedEmployee = permissionChanged
+                      ? RobinEmployee(
+                          id: updated.id,
+                          name: updated.name,
+                          rank: updated.rank,
+                          department: updated.department,
+                          email: updated.email,
+                          phone: updated.phone,
+                          role: employee.role,
+                          departmentPermission: employee.departmentPermission,
+                          pythonGroupIds: employee.pythonGroupIds,
+                          active: updated.active,
+                        )
+                      : updated;
                   robinEmployees.value = [
                     for (final item in robinEmployees.value)
-                      if (item.id == updated.id) updated else item,
+                      if (item.id == savedEmployee.id) savedEmployee else item,
                   ];
+                  if (permissionChanged) {
+                    final now = DateTime.now();
+                    final nextId = robinPermissionRequests.value.isEmpty
+                        ? 1
+                        : robinPermissionRequests.value
+                                .map((request) => request.id)
+                                .reduce((a, b) => a > b ? a : b) +
+                            1;
+                    robinPermissionRequests.value = [
+                      ...robinPermissionRequests.value,
+                      RobinPermissionRequest(
+                        id: nextId,
+                        documentNo:
+                            'RBN-APR-${DateFormat('yyyyMMdd').format(now)}-${nextId.toString().padLeft(3, '0')}',
+                        title: approvalTitleController.text.trim(),
+                        employeeId: updated.id,
+                        requesterId: robinUserProfile.value.username,
+                        requestType: 'ROBIN 권한 변경',
+                        requestedRole: role,
+                        requestedDepartment: departmentPermission,
+                        requestedPythonGroupIds: {...selectedPythonGroupIds},
+                        reason: approvalReasonController.text.trim(),
+                        requestedAt: now,
+                      ),
+                    ];
+                  }
                 } else {
                   robinEmployees.value = [...robinEmployees.value, updated];
                 }
-                if (robinUserProfile.value.username == updated.id) {
+                final appliedEmployee = robinEmployees.value
+                    .firstWhere((item) => item.id == updated.id);
+                if (robinUserProfile.value.username == appliedEmployee.id) {
                   robinUserProfile.value = RobinUserProfile(
-                    name: updated.name,
-                    department: updated.department,
-                    rank: updated.rank,
-                    email: updated.email,
-                    phone: updated.phone,
-                    username: updated.id,
-                    isAdmin: updated.isAdmin,
-                    departmentPermission: updated.departmentPermission,
+                    name: appliedEmployee.name,
+                    department: appliedEmployee.department,
+                    rank: appliedEmployee.rank,
+                    email: appliedEmployee.email,
+                    phone: appliedEmployee.phone,
+                    username: appliedEmployee.id,
+                    role: appliedEmployee.role,
+                    departmentPermission: appliedEmployee.departmentPermission,
                   );
                 }
                 Navigator.pop(dialogContext);
@@ -394,6 +535,467 @@ class EmployeeManagementScreen extends StatelessWidget {
     robinPermissionRequests.value = robinPermissionRequests.value
         .where((request) => request.employeeId != employee.id)
         .toList();
+    robinTeams.value = [
+      for (final team in robinTeams.value)
+        RobinTeam(
+          id: team.id,
+          name: team.name,
+          department: team.department,
+          division: team.division,
+          leaderId: team.leaderId == employee.id ? null : team.leaderId,
+          memberIds: {...team.memberIds}..remove(employee.id),
+        ),
+    ];
+  }
+}
+
+class TeamManagementScreen extends StatefulWidget {
+  const TeamManagementScreen({super.key});
+
+  @override
+  State<TeamManagementScreen> createState() => _TeamManagementScreenState();
+}
+
+class _TeamManagementScreenState extends State<TeamManagementScreen> {
+  static const _allDepartments = '전체 부서';
+  String _department = _allDepartments;
+
+  @override
+  Widget build(BuildContext context) => Scaffold(
+        backgroundColor: RobinTheme.background,
+        appBar: const RobinAppBar(title: '팀 관리'),
+        body: Padding(
+          padding: const EdgeInsets.all(22),
+          child: ValueListenableBuilder<List<RobinEmployee>>(
+            valueListenable: robinEmployees,
+            builder: (context, employees, _) =>
+                ValueListenableBuilder<List<RobinTeam>>(
+              valueListenable: robinTeams,
+              builder: (context, teams, _) {
+                final departments = teams
+                    .map((team) => team.department)
+                    .where((department) => department.trim().isNotEmpty)
+                    .toSet()
+                    .toList()
+                  ..sort();
+                final selectedDepartment = _department == _allDepartments ||
+                        departments.contains(_department)
+                    ? _department
+                    : _allDepartments;
+                final filteredTeams = selectedDepartment == _allDepartments
+                    ? teams
+                    : teams
+                        .where((team) => team.department == selectedDepartment)
+                        .toList();
+                final filteredMemberIds =
+                    filteredTeams.expand((team) => team.memberIds).toSet();
+                final filteredEmployees = employees
+                    .where(
+                        (employee) => filteredMemberIds.contains(employee.id))
+                    .toList();
+                return Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text('팀·사업부 관리', style: RobinTheme.headingLg),
+                              const SizedBox(height: 5),
+                              Text(
+                                '임시 조직 데이터로 사업부, 팀장, 팀원 구성을 관리합니다.',
+                                style: RobinTheme.bodySm,
+                              ),
+                            ],
+                          ),
+                        ),
+                        FilledButton.icon(
+                          onPressed: () => _showTeamEditor(context, employees),
+                          icon: const Icon(Icons.group_add_outlined, size: 18),
+                          label: const Text('팀 추가'),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 16),
+                    Wrap(
+                      spacing: 10,
+                      runSpacing: 10,
+                      crossAxisAlignment: WrapCrossAlignment.center,
+                      children: [
+                        SizedBox(
+                          width: 260,
+                          child: DropdownButtonFormField<String>(
+                            key: const ValueKey('team-department-filter'),
+                            initialValue: selectedDepartment,
+                            isExpanded: true,
+                            decoration: const InputDecoration(
+                              labelText: '부서',
+                              border: OutlineInputBorder(),
+                              isDense: true,
+                            ),
+                            items: [_allDepartments, ...departments]
+                                .map((department) => DropdownMenuItem(
+                                      value: department,
+                                      child: Text(department),
+                                    ))
+                                .toList(),
+                            onChanged: (value) {
+                              if (value != null) {
+                                setState(() => _department = value);
+                              }
+                            },
+                          ),
+                        ),
+                        Text(
+                          selectedDepartment == _allDepartments
+                              ? '전체 부서의 팀과 배정 직원 ${filteredEmployees.length}명을 표시합니다.'
+                              : '$selectedDepartment 부서의 팀과 배정 직원 ${filteredEmployees.length}명을 표시합니다.',
+                          style: RobinTheme.bodySm,
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 16),
+                    Wrap(
+                      spacing: 10,
+                      runSpacing: 10,
+                      children: [
+                        for (final division in RobinBusinessDivision.values)
+                          _divisionSummary(
+                              division, filteredTeams, filteredEmployees),
+                      ],
+                    ),
+                    const SizedBox(height: 16),
+                    Expanded(
+                      child: filteredTeams.isEmpty
+                          ? Center(
+                              child: Text(
+                                selectedDepartment == _allDepartments
+                                    ? '등록된 팀이 없습니다.'
+                                    : '$selectedDepartment 부서에 등록된 팀이 없습니다.',
+                                style: RobinTheme.bodySm,
+                              ),
+                            )
+                          : ListView.separated(
+                              itemCount: filteredTeams.length,
+                              separatorBuilder: (_, __) =>
+                                  const SizedBox(height: 10),
+                              itemBuilder: (context, index) => _teamCard(
+                                context,
+                                filteredTeams[index],
+                                employees,
+                              ),
+                            ),
+                    ),
+                  ],
+                );
+              },
+            ),
+          ),
+        ),
+      );
+
+  static Widget _divisionSummary(RobinBusinessDivision division,
+      List<RobinTeam> teams, List<RobinEmployee> employees) {
+    final divisionTeams =
+        teams.where((team) => team.division == division).toList();
+    final memberIds = divisionTeams.expand((team) => team.memberIds).toSet();
+    return Container(
+      width: 245,
+      padding: const EdgeInsets.all(13),
+      decoration: _cardDecoration(),
+      child: Row(
+        children: [
+          CircleAvatar(
+            radius: 18,
+            backgroundColor: _divisionColor(division).withValues(alpha: .12),
+            child: Icon(Icons.account_tree_outlined,
+                size: 19, color: _divisionColor(division)),
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(division.label, style: RobinTheme.headingSm),
+                Text(
+                  '팀 ${divisionTeams.length}개 · 인원 ${employees.where((employee) => memberIds.contains(employee.id)).length}명',
+                  style: RobinTheme.labelXs,
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  static Widget _teamCard(
+      BuildContext context, RobinTeam team, List<RobinEmployee> employees) {
+    RobinEmployee? leader;
+    for (final employee in employees) {
+      if (employee.id == team.leaderId) leader = employee;
+    }
+    final members = employees
+        .where((employee) => team.memberIds.contains(employee.id))
+        .toList();
+    return Container(
+      padding: const EdgeInsets.all(15),
+      decoration: _cardDecoration(),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            width: 5,
+            height: 72,
+            decoration: BoxDecoration(
+              color: _divisionColor(team.division),
+              borderRadius: BorderRadius.circular(4),
+            ),
+          ),
+          const SizedBox(width: 13),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 5,
+                  crossAxisAlignment: WrapCrossAlignment.center,
+                  children: [
+                    Text(team.name, style: RobinTheme.headingSm),
+                    _teamBadge(
+                        team.division.label, _divisionColor(team.division)),
+                    _teamBadge(team.department, RobinTheme.textSecondary),
+                  ],
+                ),
+                const SizedBox(height: 9),
+                Text(
+                  '팀장  ${leader == null ? '미지정' : '${leader.name} ${leader.rank}'}',
+                  style: RobinTheme.bodySm,
+                ),
+                const SizedBox(height: 7),
+                Wrap(
+                  spacing: 6,
+                  runSpacing: 6,
+                  children: members.isEmpty
+                      ? [Text('배정된 팀원이 없습니다.', style: RobinTheme.labelXs)]
+                      : members
+                          .map((member) => _teamBadge(
+                              '${member.name} ${member.rank}',
+                              member.id == team.leaderId
+                                  ? RobinTheme.primary
+                                  : RobinTheme.signalGreen))
+                          .toList(),
+                ),
+              ],
+            ),
+          ),
+          IconButton(
+            tooltip: '팀 수정',
+            onPressed: () => _showTeamEditor(context, employees, team: team),
+            icon: const Icon(Icons.edit_outlined, size: 19),
+          ),
+          IconButton(
+            tooltip: '팀 삭제',
+            onPressed: () => _confirmTeamDelete(context, team),
+            icon: const Icon(Icons.delete_outline,
+                size: 19, color: RobinTheme.error),
+          ),
+        ],
+      ),
+    );
+  }
+
+  static Widget _teamBadge(String label, Color color) => Container(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+        decoration: BoxDecoration(
+          color: color.withValues(alpha: .09),
+          borderRadius: BorderRadius.circular(12),
+        ),
+        child: Text(label,
+            style: RobinTheme.labelXs
+                .copyWith(color: color, fontWeight: FontWeight.w700)),
+      );
+
+  static Color _divisionColor(RobinBusinessDivision division) =>
+      switch (division) {
+        RobinBusinessDivision.robot => RobinTheme.primary,
+        RobinBusinessDivision.platformModule => RobinTheme.warning,
+        RobinBusinessDivision.common => RobinTheme.signalGreen,
+      };
+
+  static Future<void> _showTeamEditor(
+      BuildContext context, List<RobinEmployee> employees,
+      {RobinTeam? team}) async {
+    final eligibleEmployees = employees
+        .where((employee) => !employee.isDealer && employee.active)
+        .toList();
+    if (eligibleEmployees.isEmpty) return;
+
+    final editing = team != null;
+    final formKey = GlobalKey<FormState>();
+    final nameController = TextEditingController(text: team?.name ?? '');
+    final departmentController =
+        TextEditingController(text: team?.department ?? '');
+    var division = team?.division ?? RobinBusinessDivision.robot;
+    var leaderId = team?.leaderId ?? eligibleEmployees.first.id;
+    final memberIds = <String>{...?team?.memberIds, leaderId};
+
+    await showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (context, setDialogState) => AlertDialog(
+          title: Text(editing ? '팀 수정' : '팀 추가'),
+          content: SizedBox(
+            width: 620,
+            child: Form(
+              key: formKey,
+              child: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    TextFormField(
+                      controller: nameController,
+                      decoration: const InputDecoration(
+                          labelText: '팀명', border: OutlineInputBorder()),
+                      validator: (value) =>
+                          value?.trim().isEmpty ?? true ? '팀명을 입력해주세요.' : null,
+                    ),
+                    const SizedBox(height: 12),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: DropdownButtonFormField<RobinBusinessDivision>(
+                            initialValue: division,
+                            decoration: const InputDecoration(
+                                labelText: '사업부', border: OutlineInputBorder()),
+                            items: RobinBusinessDivision.values
+                                .map((item) => DropdownMenuItem(
+                                    value: item, child: Text(item.label)))
+                                .toList(),
+                            onChanged: (value) {
+                              if (value != null) {
+                                setDialogState(() => division = value);
+                              }
+                            },
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: TextFormField(
+                            controller: departmentController,
+                            decoration: const InputDecoration(
+                                labelText: '부서', border: OutlineInputBorder()),
+                            validator: (value) => value?.trim().isEmpty ?? true
+                                ? '부서를 입력해주세요.'
+                                : null,
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 12),
+                    DropdownButtonFormField<String>(
+                      initialValue: leaderId,
+                      decoration: const InputDecoration(
+                          labelText: '팀장', border: OutlineInputBorder()),
+                      items: eligibleEmployees
+                          .map((employee) => DropdownMenuItem(
+                              value: employee.id,
+                              child: Text('${employee.name} ${employee.rank}')))
+                          .toList(),
+                      onChanged: (value) {
+                        if (value == null) return;
+                        setDialogState(() {
+                          leaderId = value;
+                          memberIds.add(value);
+                        });
+                      },
+                    ),
+                    const SizedBox(height: 14),
+                    Align(
+                      alignment: Alignment.centerLeft,
+                      child: Text('팀원', style: RobinTheme.headingSm),
+                    ),
+                    const SizedBox(height: 5),
+                    ...eligibleEmployees.map((employee) => CheckboxListTile(
+                          contentPadding: EdgeInsets.zero,
+                          value: memberIds.contains(employee.id),
+                          title: Text('${employee.name} ${employee.rank}'),
+                          subtitle: Text(employee.department),
+                          onChanged: employee.id == leaderId
+                              ? null
+                              : (checked) => setDialogState(() {
+                                    if (checked ?? false) {
+                                      memberIds.add(employee.id);
+                                    } else {
+                                      memberIds.remove(employee.id);
+                                    }
+                                  }),
+                        )),
+                  ],
+                ),
+              ),
+            ),
+          ),
+          actions: [
+            TextButton(
+                onPressed: () => Navigator.pop(dialogContext),
+                child: const Text('취소')),
+            FilledButton(
+              onPressed: () {
+                if (!formKey.currentState!.validate()) return;
+                final updated = RobinTeam(
+                  id: team?.id ??
+                      'team_${DateTime.now().millisecondsSinceEpoch}',
+                  name: nameController.text.trim(),
+                  department: departmentController.text.trim(),
+                  division: division,
+                  leaderId: leaderId,
+                  memberIds: {...memberIds, leaderId},
+                );
+                robinTeams.value = editing
+                    ? [
+                        for (final item in robinTeams.value)
+                          if (item.id == updated.id) updated else item,
+                      ]
+                    : [...robinTeams.value, updated];
+                Navigator.pop(dialogContext);
+              },
+              child: Text(editing ? '변경 저장' : '추가'),
+            ),
+          ],
+        ),
+      ),
+    );
+    nameController.dispose();
+    departmentController.dispose();
+  }
+
+  static Future<void> _confirmTeamDelete(
+      BuildContext context, RobinTeam team) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('팀 삭제'),
+        content: Text('${team.name}을 삭제할까요? 직원 계정은 삭제되지 않습니다.'),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(dialogContext, false),
+              child: const Text('취소')),
+          FilledButton(
+            style: FilledButton.styleFrom(backgroundColor: RobinTheme.error),
+            onPressed: () => Navigator.pop(dialogContext, true),
+            child: const Text('삭제'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
+    robinTeams.value =
+        robinTeams.value.where((item) => item.id != team.id).toList();
   }
 }
 
@@ -427,7 +1029,7 @@ class PermissionManagementScreen extends StatelessWidget {
                       Tab(text: '부서 권한 관리'),
                       Tab(text: 'Python 그룹 관리'),
                       Tab(text: 'Python 앱·기능 관리'),
-                      Tab(text: '권한 신청 관리'),
+                      Tab(text: '권한 품의·결재 이력'),
                     ],
                   ),
                 ),
@@ -1317,10 +1919,23 @@ class _PermissionRequestPanel extends StatelessWidget {
                   separatorBuilder: (_, __) => const Divider(height: 1),
                   itemBuilder: (context, index) {
                     final request = requests[index];
-                    final detail = request.requestedPythonGroupId != null
-                        ? pythonGroupName(request.requestedPythonGroupId)
-                        : '${request.requestedDepartment?.label ?? '-'} 권한';
+                    final groupNames = request.requestedPythonGroupIds
+                        .map(pythonGroupName)
+                        .join(', ');
+                    final detail = [
+                      if (request.requestedRole != null)
+                        '역할 ${request.requestedRole!.label}',
+                      if (request.requestedDepartment != null)
+                        '${request.requestedDepartment!.label} 권한',
+                      if (groupNames.isNotEmpty) 'Python $groupNames',
+                    ].join(' · ');
                     final displayName = employeeDisplayName(request.employeeId);
+                    final decisionHistory = request.status ==
+                            PermissionRequestStatus.pending
+                        ? '결재 대기'
+                        : '${request.status.label}: ${employeeDisplayName(request.decidedBy ?? '')} · '
+                            '${request.decidedAt == null ? '-' : DateFormat('yyyy-MM-dd HH:mm').format(request.decidedAt!)}\n'
+                            '결재 의견: ${request.decisionNote ?? '-'}';
                     return ListTile(
                       contentPadding: const EdgeInsets.symmetric(
                           horizontal: 10, vertical: 8),
@@ -1328,20 +1943,24 @@ class _PermissionRequestPanel extends StatelessWidget {
                         backgroundColor: RobinTheme.accentLight,
                         child: Text(displayName.isEmpty ? '?' : displayName[0]),
                       ),
-                      title: Text(displayName, style: RobinTheme.headingSm),
+                      title: Text('${request.documentNo} · ${request.title}',
+                          style: RobinTheme.headingSm),
                       subtitle: Text(
-                        '${request.requestType} · $detail\n${request.reason} · ${DateFormat('yyyy-MM-dd HH:mm').format(request.requestedAt)}',
+                        '대상 $displayName · 신청자 ${employeeDisplayName(request.requesterId)}\n'
+                        '${request.requestType} · $detail\n'
+                        '품의 사유: ${request.reason} · ${DateFormat('yyyy-MM-dd HH:mm').format(request.requestedAt)}\n'
+                        '$decisionHistory',
                         style: RobinTheme.bodySm,
                       ),
-                      isThreeLine: true,
+                      isThreeLine: false,
                       trailing:
                           request.status == PermissionRequestStatus.pending
                               ? Wrap(
                                   spacing: 7,
                                   children: [
                                     OutlinedButton(
-                                      onPressed: () => _setStatus(request,
-                                          PermissionRequestStatus.rejected),
+                                      onPressed: () =>
+                                          _showRejectDialog(context, request),
                                       child: const Text('반려'),
                                     ),
                                     FilledButton(
@@ -1368,9 +1987,10 @@ class _PermissionRequestPanel extends StatelessWidget {
     }
     final selectedGroupIds = <String>{
       ...?requestedEmployee?.pythonGroupIds,
-      if (request.requestedPythonGroupId != null)
-        request.requestedPythonGroupId!,
+      ...request.requestedPythonGroupIds,
     };
+    final decisionController = TextEditingController();
+    final formKey = GlobalKey<FormState>();
 
     await showDialog<void>(
       context: context,
@@ -1380,54 +2000,71 @@ class _PermissionRequestPanel extends StatelessWidget {
           title: Text('${employeeDisplayName(request.employeeId)} 권한 설정'),
           content: SizedBox(
             width: 500,
-            child: SingleChildScrollView(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  DropdownButtonFormField<RobinDepartmentPermission>(
-                    initialValue: department,
-                    decoration: const InputDecoration(
-                      labelText: '부서 권한',
-                      border: OutlineInputBorder(),
-                    ),
-                    items: RobinDepartmentPermission.values
-                        .map((item) => DropdownMenuItem(
-                            value: item, child: Text('${item.label} 권한')))
-                        .toList(),
-                    onChanged: (value) {
-                      if (value != null) {
-                        setDialogState(() => department = value);
-                      }
-                    },
-                  ),
-                  const SizedBox(height: 16),
-                  Text('Python 권한 그룹', style: RobinTheme.headingSm),
-                  const SizedBox(height: 4),
-                  Text('부서 권한과 관계없이 필요한 Python 그룹을 선택합니다.',
-                      style: RobinTheme.bodySm),
-                  const SizedBox(height: 6),
-                  ...pythonPermissionGroups.value.map((group) {
-                    final actionCount = group.appActionIds.values
-                        .fold<int>(0, (sum, ids) => sum + ids.length);
-                    return CheckboxListTile(
-                      contentPadding: EdgeInsets.zero,
-                      value: selectedGroupIds.contains(group.id),
-                      title: Text(group.name),
-                      subtitle: Text(
-                        '${group.description}\n앱 ${group.appActionIds.length}개 · 기능 $actionCount개',
-                        style: RobinTheme.labelXs,
+            child: Form(
+              key: formKey,
+              child: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    DropdownButtonFormField<RobinDepartmentPermission>(
+                      initialValue: department,
+                      decoration: const InputDecoration(
+                        labelText: '부서 권한',
+                        border: OutlineInputBorder(),
                       ),
-                      onChanged: (checked) => setDialogState(() {
-                        if (checked ?? false) {
-                          selectedGroupIds.add(group.id);
-                        } else {
-                          selectedGroupIds.remove(group.id);
+                      items: RobinDepartmentPermission.values
+                          .map((item) => DropdownMenuItem(
+                              value: item, child: Text('${item.label} 권한')))
+                          .toList(),
+                      onChanged: (value) {
+                        if (value != null) {
+                          setDialogState(() => department = value);
                         }
-                      }),
-                    );
-                  }),
-                ],
+                      },
+                    ),
+                    const SizedBox(height: 16),
+                    Text('Python 권한 그룹', style: RobinTheme.headingSm),
+                    const SizedBox(height: 4),
+                    Text('부서 권한과 관계없이 필요한 Python 그룹을 선택합니다.',
+                        style: RobinTheme.bodySm),
+                    const SizedBox(height: 6),
+                    ...pythonPermissionGroups.value.map((group) {
+                      final actionCount = group.appActionIds.values
+                          .fold<int>(0, (sum, ids) => sum + ids.length);
+                      return CheckboxListTile(
+                        contentPadding: EdgeInsets.zero,
+                        value: selectedGroupIds.contains(group.id),
+                        title: Text(group.name),
+                        subtitle: Text(
+                          '${group.description}\n앱 ${group.appActionIds.length}개 · 기능 $actionCount개',
+                          style: RobinTheme.labelXs,
+                        ),
+                        onChanged: (checked) => setDialogState(() {
+                          if (checked ?? false) {
+                            selectedGroupIds.add(group.id);
+                          } else {
+                            selectedGroupIds.remove(group.id);
+                          }
+                        }),
+                      );
+                    }),
+                    const SizedBox(height: 12),
+                    TextFormField(
+                      key: const ValueKey('permission-decision-note'),
+                      controller: decisionController,
+                      minLines: 2,
+                      maxLines: 3,
+                      decoration: const InputDecoration(
+                        labelText: '결재 의견',
+                        border: OutlineInputBorder(),
+                      ),
+                      validator: (value) => value?.trim().isEmpty ?? true
+                          ? '결재 의견을 입력해주세요.'
+                          : null,
+                    ),
+                  ],
+                ),
               ),
             ),
           ),
@@ -1437,7 +2074,9 @@ class _PermissionRequestPanel extends StatelessWidget {
                 child: const Text('취소')),
             FilledButton(
               onPressed: () {
-                _grant(request, department, selectedGroupIds);
+                if (!formKey.currentState!.validate()) return;
+                _grant(request, department, selectedGroupIds,
+                    decisionController.text.trim());
                 Navigator.pop(dialogContext);
               },
               child: const Text('권한 부여 및 승인'),
@@ -1448,12 +2087,16 @@ class _PermissionRequestPanel extends StatelessWidget {
     );
   }
 
-  static void _grant(RobinPermissionRequest request,
-      RobinDepartmentPermission department, Set<String> selectedGroupIds) {
+  static void _grant(
+      RobinPermissionRequest request,
+      RobinDepartmentPermission department,
+      Set<String> selectedGroupIds,
+      String decisionNote) {
     final employees = [...robinEmployees.value];
     final index = employees.indexWhere((item) => item.id == request.employeeId);
     if (index >= 0) {
       employees[index] = employees[index].copyWith(
+        role: request.requestedRole,
         departmentPermission: department,
         pythonGroupIds: {...selectedGroupIds},
       );
@@ -1465,20 +2108,71 @@ class _PermissionRequestPanel extends StatelessWidget {
         department: department.label,
         email: '${request.employeeId}@robostar.com',
         phone: '-',
-        isAdmin: false,
+        role: RobinAccountRole.employee,
         departmentPermission: department,
         pythonGroupIds: {...selectedGroupIds},
       ));
     }
     robinEmployees.value = employees;
-    _setStatus(request, PermissionRequestStatus.approved);
+    _setStatus(request, PermissionRequestStatus.approved, decisionNote);
   }
 
-  static void _setStatus(
-      RobinPermissionRequest request, PermissionRequestStatus status) {
+  static Future<void> _showRejectDialog(
+      BuildContext context, RobinPermissionRequest request) async {
+    final formKey = GlobalKey<FormState>();
+    final decisionController = TextEditingController();
+    await showDialog<void>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('권한 품의 반려'),
+        content: Form(
+          key: formKey,
+          child: TextFormField(
+            key: const ValueKey('permission-reject-note'),
+            controller: decisionController,
+            minLines: 3,
+            maxLines: 4,
+            decoration: const InputDecoration(
+              labelText: '반려 사유',
+              border: OutlineInputBorder(),
+            ),
+            validator: (value) =>
+                value?.trim().isEmpty ?? true ? '반려 사유를 입력해주세요.' : null,
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext),
+            child: const Text('취소'),
+          ),
+          FilledButton(
+            style: FilledButton.styleFrom(backgroundColor: RobinTheme.error),
+            onPressed: () {
+              if (!formKey.currentState!.validate()) return;
+              _setStatus(request, PermissionRequestStatus.rejected,
+                  decisionController.text.trim());
+              Navigator.pop(dialogContext);
+            },
+            child: const Text('반려 확정'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  static void _setStatus(RobinPermissionRequest request,
+      PermissionRequestStatus status, String decisionNote) {
     robinPermissionRequests.value = [
       for (final item in robinPermissionRequests.value)
-        if (item.id == request.id) item.copyWith(status: status) else item,
+        if (item.id == request.id)
+          item.copyWith(
+            status: status,
+            decidedBy: robinUserProfile.value.username,
+            decidedAt: DateTime.now(),
+            decisionNote: decisionNote,
+          )
+        else
+          item,
     ];
   }
 

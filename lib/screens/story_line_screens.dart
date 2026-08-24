@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 
+import '../services/project_todo_service.dart';
 import '../theme/robin_theme.dart';
 import '../widgets/app_bar.dart';
+import '../widgets/user_profile.dart';
 
 class OrderManagementScreen extends StatefulWidget {
   const OrderManagementScreen({super.key});
@@ -37,6 +39,7 @@ class _OrderManagementScreenState extends State<OrderManagementScreen> {
 
   @override
   Widget build(BuildContext context) {
+    if (robinUserProfile.value.isDealer) return _buildDealerBidScreen();
     final visible = _rows.where((row) {
       if (_stage != '전체 단계' && row.stage != _stage) {
         return false;
@@ -247,6 +250,83 @@ class _OrderManagementScreenState extends State<OrderManagementScreen> {
     );
   }
 
+  Widget _buildDealerBidScreen() {
+    final department = robinUserProfile.value.department;
+    final rows = _rows.where((row) => row.channel == department).toList();
+    return Scaffold(
+      backgroundColor: RobinTheme.background,
+      appBar: const RobinAppBar(title: '내 입찰'),
+      body: Padding(
+        padding: const EdgeInsets.all(22),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('내 입찰', style: RobinTheme.headingLg),
+            const SizedBox(height: 4),
+            Text('내 대리점이 참여한 입찰과 제안 진행 상태만 조회합니다.', style: RobinTheme.bodySm),
+            const SizedBox(height: 14),
+            Expanded(
+              child: Container(
+                width: double.infinity,
+                decoration: _storyCard(),
+                child: rows.isEmpty
+                    ? const Center(child: Text('등록된 입찰 건이 없습니다.'))
+                    : ListView.separated(
+                        padding: const EdgeInsets.all(12),
+                        itemCount: rows.length,
+                        separatorBuilder: (_, __) => const Divider(),
+                        itemBuilder: (context, index) {
+                          final row = rows[index];
+                          return ListTile(
+                            leading: const Icon(Icons.gavel_outlined,
+                                color: RobinTheme.primary),
+                            title: Text('${row.number} · ${row.task}',
+                                style: RobinTheme.headingSm),
+                            subtitle: Text(
+                                '${row.customer} · 제안가 ${_money(row.proposalPrice)}만원'),
+                            trailing: Chip(label: Text(row.stage)),
+                            onTap: () => _showDealerBidDetail(context, row),
+                          );
+                        },
+                      ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _showDealerBidDetail(BuildContext context, _OrderRow row) async {
+    await showDialog<void>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: Text('${row.number} · ${row.task}'),
+        content: SizedBox(
+          width: 520,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              _detailValue('고객사', row.customer),
+              _detailValue('진행 단계', row.stage),
+              _detailValue('제안 금액', '${_money(row.proposalPrice)}만원'),
+              _detailValue('입찰 상태', row.approval),
+              const SizedBox(height: 8),
+              Text('원가·재료비·내부 결재 정보는 대리점 계정에 제공되지 않습니다.',
+                  style: RobinTheme.bodySm),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(dialogContext),
+              child: const Text('닫기')),
+        ],
+      ),
+    );
+  }
+
   Future<void> _showOrderDetail(BuildContext context, _OrderRow row) async {
     await showDialog<void>(
       context: context,
@@ -331,18 +411,19 @@ class ProjectManagementScreen extends StatefulWidget {
 class _ProjectManagementScreenState extends State<ProjectManagementScreen> {
   _ProjectRow _selected = _projects.first;
   final _tableController = ScrollController();
+  final Map<String, List<_ProjectMemoEntry>> _memoThreads = {};
 
   static const _projects = [
     _ProjectRow('SO-2608-014', 'A사 자동화라인 증설', '구매', '2026-09-20', '2026-09-27',
-        true, 'BOM 장기재고 2건 확인 필요'),
+        true, 'BOM 장기재고 2건 확인 필요', '서울 대리점'),
     _ProjectRow('SO-2608-011', 'B사 물류 로봇 시스템', '생산', '2026-09-05', '-', false,
-        'Work Center 생산예정일 입력 대기'),
+        'Work Center 생산예정일 입력 대기', '본사 직판'),
     _ProjectRow('SO-2608-009', 'C사 협동로봇 공급', '품질', '2026-08-28', '2026-08-30',
-        true, 'OQC 검사 예정'),
+        true, 'OQC 검사 예정', '경기 대리점'),
     _ProjectRow('SO-2608-006', 'D사 검사 자동화 설비', '물류', '2026-08-24', '-', false,
-        '납품처 확인 완료 · 배차 대기'),
+        '납품처 확인 완료 · 배차 대기', '본사 직판'),
     _ProjectRow('SO-2608-002', 'E사 제어시스템', '마감', '2026-08-18', '-', false,
-        'ERP 거래명세서 발생 대기'),
+        'ERP 거래명세서 발생 대기', '부산 대리점'),
   ];
 
   @override
@@ -352,199 +433,312 @@ class _ProjectManagementScreenState extends State<ProjectManagementScreen> {
   }
 
   @override
-  Widget build(BuildContext context) => Scaffold(
-        backgroundColor: RobinTheme.background,
-        appBar: const RobinAppBar(title: '프로젝트 관리'),
-        body: DefaultTabController(
-          length: 5,
-          child: SingleChildScrollView(
-            padding: const EdgeInsets.all(22),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text('프로젝트 관리', style: RobinTheme.headingLg),
-                const SizedBox(height: 4),
-                Text('수주부터 마감까지 진행현황과 단계별 입력 업무를 관리합니다.',
-                    style: RobinTheme.bodySm),
-                const SizedBox(height: 15),
-                const _ProjectStageSummary(),
-                const SizedBox(height: 14),
-                Container(
-                  width: double.infinity,
-                  decoration: _storyCard(),
-                  child: LayoutBuilder(
-                    builder: (context, constraints) => Scrollbar(
+  Widget build(BuildContext context) {
+    if (robinUserProfile.value.isDealer) return _buildDealerProgressScreen();
+    return Scaffold(
+      backgroundColor: RobinTheme.background,
+      appBar: const RobinAppBar(title: '프로젝트 관리'),
+      body: DefaultTabController(
+        length: 5,
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.all(22),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text('프로젝트 관리', style: RobinTheme.headingLg),
+              const SizedBox(height: 4),
+              Text('수주 확정 프로젝트를 설계부터 마감까지 단계별로 관리합니다.',
+                  style: RobinTheme.bodySm),
+              const SizedBox(height: 15),
+              const _ProjectStageSummary(),
+              const SizedBox(height: 14),
+              Container(
+                width: double.infinity,
+                decoration: _storyCard(),
+                child: LayoutBuilder(
+                  builder: (context, constraints) => Scrollbar(
+                    controller: _tableController,
+                    thumbVisibility: true,
+                    interactive: true,
+                    scrollbarOrientation: ScrollbarOrientation.bottom,
+                    child: SingleChildScrollView(
                       controller: _tableController,
-                      thumbVisibility: true,
-                      interactive: true,
-                      scrollbarOrientation: ScrollbarOrientation.bottom,
-                      child: SingleChildScrollView(
-                        controller: _tableController,
-                        scrollDirection: Axis.horizontal,
-                        padding: const EdgeInsets.only(bottom: 12),
-                        child: ConstrainedBox(
-                          constraints:
-                              BoxConstraints(minWidth: constraints.maxWidth),
-                          child: DataTable(
-                            horizontalMargin: 10,
-                            checkboxHorizontalMargin: 8,
-                            columnSpacing: 14,
-                            headingRowHeight: 56,
-                            dataRowMinHeight: 62,
-                            dataRowMaxHeight: 94,
-                            columns: const [
-                              DataColumn(label: Text('수주번호')),
-                              DataColumn(label: Text('프로젝트명')),
-                              DataColumn(label: Text('수주')),
-                              DataColumn(label: Text('설계')),
-                              DataColumn(label: Text('구매')),
-                              DataColumn(label: Text('생산')),
-                              DataColumn(label: Text('품질')),
-                              DataColumn(label: Text('물류')),
-                              DataColumn(label: Text('마감')),
-                              DataColumn(label: Text('기존 납기일')),
-                              DataColumn(label: Text('변경 납기일')),
-                              DataColumn(label: Text('메모/산출물')),
-                            ],
-                            rows: _projects.map((row) {
-                              final stageIndex =
-                                  _projectStages.indexOf(row.stage);
-                              return DataRow(
-                                selected: _selected.number == row.number,
-                                onSelectChanged: (_) =>
-                                    setState(() => _selected = row),
-                                cells: [
-                                  DataCell(Text(row.number,
-                                      style: RobinTheme.bodySm.copyWith(
-                                          color: RobinTheme.primary,
-                                          fontWeight: FontWeight.w700))),
-                                  DataCell(SizedBox(
-                                      width: 150,
-                                      child: Text(row.projectName,
-                                          softWrap: true))),
-                                  for (var index = 0;
-                                      index < _projectStages.length;
-                                      index++)
-                                    DataCell(_progressDot(index, stageIndex)),
-                                  DataCell(Text(row.dueDate)),
-                                  DataCell(Row(children: [
-                                    Text(row.changedDueDate),
-                                    if (row.urgent) ...[
-                                      const SizedBox(width: 5),
-                                      _statusChip('긴급'),
-                                    ]
-                                  ])),
-                                  DataCell(SizedBox(
-                                      width: 170,
-                                      child: Text(row.memo, softWrap: true))),
-                                ],
-                              );
-                            }).toList(),
-                          ),
+                      scrollDirection: Axis.horizontal,
+                      padding: const EdgeInsets.only(bottom: 12),
+                      child: ConstrainedBox(
+                        constraints:
+                            BoxConstraints(minWidth: constraints.maxWidth),
+                        child: DataTable(
+                          horizontalMargin: 10,
+                          checkboxHorizontalMargin: 8,
+                          columnSpacing: 14,
+                          headingRowHeight: 56,
+                          dataRowMinHeight: 62,
+                          dataRowMaxHeight: 94,
+                          columns: const [
+                            DataColumn(label: Text('수주번호')),
+                            DataColumn(label: Text('프로젝트명')),
+                            DataColumn(label: Text('설계')),
+                            DataColumn(label: Text('구매')),
+                            DataColumn(label: Text('생산')),
+                            DataColumn(label: Text('품질')),
+                            DataColumn(label: Text('물류')),
+                            DataColumn(label: Text('마감')),
+                            DataColumn(label: Text('기존 납기일')),
+                            DataColumn(label: Text('변경 납기일')),
+                            DataColumn(label: Text('메모/산출물')),
+                          ],
+                          rows: _projects.map((row) {
+                            final stageIndex =
+                                _projectStages.indexOf(row.stage);
+                            return DataRow(
+                              selected: _selected.number == row.number,
+                              onSelectChanged: (_) =>
+                                  setState(() => _selected = row),
+                              cells: [
+                                DataCell(Text(row.number,
+                                    style: RobinTheme.bodySm.copyWith(
+                                        color: RobinTheme.primary,
+                                        fontWeight: FontWeight.w700))),
+                                DataCell(SizedBox(
+                                    width: 150,
+                                    child:
+                                        Text(row.projectName, softWrap: true))),
+                                for (var index = 0;
+                                    index < _projectStages.length;
+                                    index++)
+                                  DataCell(
+                                      _progressDot(row, index, stageIndex)),
+                                DataCell(Text(row.dueDate)),
+                                DataCell(Row(children: [
+                                  Text(row.changedDueDate),
+                                  if (row.urgent) ...[
+                                    const SizedBox(width: 5),
+                                    _statusChip('긴급'),
+                                  ]
+                                ])),
+                                DataCell(SizedBox(
+                                    width: 170,
+                                    child: Text(row.memo, softWrap: true))),
+                              ],
+                            );
+                          }).toList(),
                         ),
                       ),
                     ),
                   ),
                 ),
-                const SizedBox(height: 14),
-                Container(
-                  decoration: _storyCard(),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Padding(
-                        padding: const EdgeInsets.fromLTRB(16, 14, 16, 10),
-                        child: Row(
-                          children: [
-                            Expanded(
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Text(
-                                      '${_selected.number} · ${_selected.projectName}',
-                                      style: RobinTheme.headingSm),
-                                  Text(
-                                      '현재 단계 ${_selected.stage} · ${_selected.memo}',
-                                      style: RobinTheme.bodySm),
-                                ],
-                              ),
+              ),
+              const SizedBox(height: 14),
+              Container(
+                decoration: _storyCard(),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(16, 14, 16, 10),
+                      child: Row(
+                        children: [
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                    '${_selected.number} · ${_selected.projectName}',
+                                    style: RobinTheme.headingSm),
+                                Text(
+                                    '현재 단계 ${_selected.stage} · ${_selected.memo}',
+                                    style: RobinTheme.bodySm),
+                              ],
                             ),
-                            OutlinedButton.icon(
-                                onPressed: () => _showMemoDialog(context),
-                                icon: const Icon(Icons.note_add_outlined,
-                                    size: 17),
-                                label: const Text('메모/산출물')),
-                            const SizedBox(width: 7),
-                            FilledButton.icon(
-                                onPressed: () => _showDueDateDialog(context),
-                                icon: const Icon(Icons.event_repeat, size: 17),
-                                label: const Text('납기 변경')),
-                          ],
-                        ),
-                      ),
-                      const Divider(height: 1),
-                      const TabBar(
-                        tabs: [
-                          Tab(text: '구매'),
-                          Tab(text: '생산'),
-                          Tab(text: '품질'),
-                          Tab(text: '물류'),
-                          Tab(text: '마감'),
+                          ),
+                          OutlinedButton.icon(
+                              onPressed: () => _showMemoDialog(context),
+                              icon:
+                                  const Icon(Icons.note_add_outlined, size: 17),
+                              label: const Text('메모·댓글')),
+                          const SizedBox(width: 7),
+                          FilledButton.icon(
+                              onPressed: () => _showDueDateDialog(context),
+                              icon: const Icon(Icons.event_repeat, size: 17),
+                              label: const Text('납기 변경')),
                         ],
                       ),
-                      SizedBox(
-                        height: 360,
-                        child: TabBarView(
-                          children: [
-                            _PurchasePanel(project: _selected),
-                            _ProductionPanel(project: _selected),
-                            _QualityPanel(project: _selected),
-                            _LogisticsPanel(project: _selected),
-                            _ClosingPanel(project: _selected),
-                          ],
-                        ),
+                    ),
+                    const Divider(height: 1),
+                    const TabBar(
+                      tabs: [
+                        Tab(text: '구매'),
+                        Tab(text: '생산'),
+                        Tab(text: '품질'),
+                        Tab(text: '물류'),
+                        Tab(text: '마감'),
+                      ],
+                    ),
+                    SizedBox(
+                      height: 360,
+                      child: TabBarView(
+                        children: [
+                          _PurchasePanel(
+                              project: _selected, projects: _projects),
+                          _ProductionPanel(
+                              project: _selected, projects: _projects),
+                          _QualityPanel(
+                              project: _selected, projects: _projects),
+                          _LogisticsPanel(
+                              project: _selected, projects: _projects),
+                          _ClosingPanel(
+                              project: _selected, projects: _projects),
+                        ],
                       ),
-                    ],
-                  ),
+                    ),
+                  ],
                 ),
-              ],
-            ),
-          ),
-        ),
-      );
-
-  Future<void> _showMemoDialog(BuildContext context) async {
-    await showDialog<void>(
-      context: context,
-      builder: (dialogContext) => AlertDialog(
-        title: const Text('프로젝트 메모 및 산출물'),
-        content: const SizedBox(
-          width: 500,
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              TextField(
-                  maxLines: 4,
-                  decoration: InputDecoration(
-                      labelText: '프로젝트 메모', border: OutlineInputBorder())),
-              SizedBox(height: 12),
-              ListTile(
-                  leading: Icon(Icons.upload_file_outlined),
-                  title: Text('도면·제안서·검사성적서 업로드'),
-                  subtitle: Text('PDF, XLSX, DWG 등 프로젝트 산출물')),
+              ),
             ],
           ),
         ),
-        actions: [
-          TextButton(
-              onPressed: () => Navigator.pop(dialogContext),
-              child: const Text('취소')),
-          FilledButton(
-              onPressed: () => Navigator.pop(dialogContext),
-              child: const Text('저장')),
-        ],
       ),
     );
+  }
+
+  Widget _buildDealerProgressScreen() {
+    final department = robinUserProfile.value.department;
+    final rows = _projects.where((row) => row.channel == department).toList();
+    return Scaffold(
+      backgroundColor: RobinTheme.background,
+      appBar: const RobinAppBar(title: '진행단계 조회'),
+      body: Padding(
+        padding: const EdgeInsets.all(22),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('진행단계 조회', style: RobinTheme.headingLg),
+            const SizedBox(height: 4),
+            Text('내 대리점의 수주 프로젝트 진행 상태를 읽기 전용으로 확인합니다.',
+                style: RobinTheme.bodySm),
+            const SizedBox(height: 14),
+            Expanded(
+              child: ListView.separated(
+                itemCount: rows.length,
+                separatorBuilder: (_, __) => const SizedBox(height: 10),
+                itemBuilder: (context, rowIndex) {
+                  final row = rows[rowIndex];
+                  final stageIndex = _projectStages.indexOf(row.stage);
+                  return Container(
+                    padding: const EdgeInsets.all(16),
+                    decoration: _storyCard(),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text('${row.number} · ${row.projectName}',
+                            style: RobinTheme.headingSm),
+                        const SizedBox(height: 5),
+                        Text(
+                            '납기 ${row.changedDueDate == '-' ? row.dueDate : row.changedDueDate}',
+                            style: RobinTheme.bodySm),
+                        const SizedBox(height: 14),
+                        SingleChildScrollView(
+                          scrollDirection: Axis.horizontal,
+                          child: Row(
+                            children: [
+                              for (var index = 0;
+                                  index < _projectStages.length;
+                                  index++) ...[
+                                _dealerStageItem(index, stageIndex),
+                                if (index < _projectStages.length - 1)
+                                  Container(
+                                    width: 34,
+                                    height: 2,
+                                    color: index < stageIndex
+                                        ? RobinTheme.primary
+                                        : RobinTheme.border,
+                                  ),
+                              ],
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                  );
+                },
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _dealerStageItem(int index, int currentIndex) {
+    final complete = index < currentIndex;
+    final current = index == currentIndex;
+    final color =
+        complete || current ? RobinTheme.primary : RobinTheme.textMuted;
+    return Tooltip(
+      message:
+          '${_projectStageOwners[index]} · ${complete ? '완료' : current ? '진행 중' : '대기'}',
+      child: SizedBox(
+        width: 74,
+        child: Column(
+          children: [
+            Icon(complete ? Icons.check_circle : Icons.radio_button_checked,
+                color: color, size: 22),
+            const SizedBox(height: 4),
+            Text(_projectStages[index], style: TextStyle(color: color)),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _showMemoDialog(BuildContext context) async {
+    final initial = _memoThreads.putIfAbsent(
+      _selected.number,
+      () => [
+        _ProjectMemoEntry(
+          id: 'initial-${_selected.number}',
+          parentId: null,
+          author: '김로빈 책임',
+          assignee: _projectStageOwners[
+              _projectStages.indexOf(_selected.stage).clamp(0, 5)],
+          message: _selected.memo,
+          at: '2026-08-21 10:20',
+          attachment: '진행현황_검토자료.xlsx',
+        ),
+      ],
+    );
+    final result = await showDialog<_ProjectMemoResult>(
+      context: context,
+      builder: (dialogContext) => _ProjectMemoDialog(
+        project: _selected,
+        initialEntries: initial,
+      ),
+    );
+    if (result == null || !context.mounted) return;
+    setState(() => _memoThreads[_selected.number] = result.entries);
+    for (final entry in result.newEntries) {
+      addProjectTodo(
+        ProjectTodoItem(
+          id: entry.id,
+          orderNo: _selected.number,
+          projectName: _selected.projectName,
+          stage: _selected.stage,
+          assignee: entry.assignee,
+          task: entry.message,
+          createdBy: entry.author,
+          createdAt: entry.at,
+        ),
+      );
+    }
+    if (result.newEntries.isNotEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content:
+              Text('메모 ${result.newEntries.length}건을 저장하고 담당자 To-Do를 생성했습니다.'),
+        ),
+      );
+    }
   }
 
   Future<void> _showDueDateDialog(BuildContext context) async {
@@ -586,9 +780,254 @@ class _ProjectManagementScreenState extends State<ProjectManagementScreen> {
   }
 }
 
+class _ProjectMemoDialog extends StatefulWidget {
+  final _ProjectRow project;
+  final List<_ProjectMemoEntry> initialEntries;
+
+  const _ProjectMemoDialog({
+    required this.project,
+    required this.initialEntries,
+  });
+
+  @override
+  State<_ProjectMemoDialog> createState() => _ProjectMemoDialogState();
+}
+
+class _ProjectMemoDialogState extends State<_ProjectMemoDialog> {
+  static const _assignees = [
+    '이설계 책임',
+    '김구매 팀장',
+    '박생산 책임',
+    '최품질 책임',
+    '김로빈 책임',
+  ];
+
+  late final List<_ProjectMemoEntry> _entries;
+  final List<_ProjectMemoEntry> _newEntries = [];
+  final _message = TextEditingController();
+  final _attachment = TextEditingController();
+  String _assignee = _assignees.first;
+  String? _replyTo;
+
+  @override
+  void initState() {
+    super.initState();
+    _entries = [...widget.initialEntries];
+    final stageIndex = _projectStages.indexOf(widget.project.stage);
+    if (stageIndex >= 0) _assignee = _projectStageOwners[stageIndex];
+  }
+
+  @override
+  void dispose() {
+    _message.dispose();
+    _attachment.dispose();
+    super.dispose();
+  }
+
+  void _addMemo() {
+    final message = _message.text.trim();
+    if (message.isEmpty) return;
+    final now = DateTime.now();
+    String two(int value) => value.toString().padLeft(2, '0');
+    final entry = _ProjectMemoEntry(
+      id: 'memo-${now.microsecondsSinceEpoch}',
+      parentId: _replyTo,
+      author: robinUserProfile.value.name,
+      assignee: _assignee,
+      message: message,
+      at: '${now.year}-${two(now.month)}-${two(now.day)} '
+          '${two(now.hour)}:${two(now.minute)}',
+      attachment:
+          _attachment.text.trim().isEmpty ? null : _attachment.text.trim(),
+    );
+    setState(() {
+      _entries.add(entry);
+      _newEntries.add(entry);
+      _message.clear();
+      _attachment.clear();
+      _replyTo = null;
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) => Dialog(
+        insetPadding: const EdgeInsets.all(24),
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 860, maxHeight: 760),
+          child: Column(
+            children: [
+              Padding(
+                padding: const EdgeInsets.fromLTRB(18, 16, 10, 12),
+                child: Row(
+                  children: [
+                    const Icon(Icons.forum_outlined, color: RobinTheme.primary),
+                    const SizedBox(width: 9),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text('프로젝트 메모·댓글 이력', style: RobinTheme.headingLg),
+                          Text(
+                              '${widget.project.number} · ${widget.project.projectName}',
+                              style: RobinTheme.bodySm),
+                        ],
+                      ),
+                    ),
+                    Chip(label: Text('${_entries.length}건')),
+                    IconButton(
+                      tooltip: '닫기',
+                      onPressed: () => Navigator.pop(context),
+                      icon: const Icon(Icons.close),
+                    ),
+                  ],
+                ),
+              ),
+              const Divider(height: 1),
+              Expanded(
+                child: ListView(
+                  padding: const EdgeInsets.all(12),
+                  children: [
+                    for (final entry in _entries) ...[
+                      Padding(
+                        padding: EdgeInsets.fromLTRB(
+                            entry.parentId == null ? 4 : 38, 7, 4, 7),
+                        child: Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Icon(
+                              entry.parentId == null
+                                  ? Icons.chat_bubble_outline
+                                  : Icons.subdirectory_arrow_right,
+                              size: 18,
+                              color: RobinTheme.primary,
+                            ),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                      '${entry.author} · 담당 ${entry.assignee} · ${entry.at}',
+                                      style: RobinTheme.labelXs),
+                                  const SizedBox(height: 3),
+                                  Text(entry.message),
+                                  if (entry.attachment != null) ...[
+                                    const SizedBox(height: 4),
+                                    Chip(
+                                      avatar: const Icon(
+                                          Icons.attach_file_outlined,
+                                          size: 15),
+                                      label: Text(entry.attachment!),
+                                    ),
+                                  ],
+                                ],
+                              ),
+                            ),
+                            TextButton(
+                              onPressed: () =>
+                                  setState(() => _replyTo = entry.id),
+                              child: const Text('답글'),
+                            ),
+                          ],
+                        ),
+                      ),
+                      const Divider(height: 1),
+                    ],
+                    const SizedBox(height: 8),
+                    DropdownButtonFormField<String>(
+                      key: const ValueKey('project-memo-assignee'),
+                      initialValue: _assignee,
+                      decoration: const InputDecoration(
+                        labelText: 'To-Do 담당자',
+                        border: OutlineInputBorder(),
+                      ),
+                      items: _assignees
+                          .map((assignee) => DropdownMenuItem(
+                              value: assignee, child: Text(assignee)))
+                          .toList(),
+                      onChanged: (value) =>
+                          setState(() => _assignee = value ?? _assignee),
+                    ),
+                    const SizedBox(height: 8),
+                    TextField(
+                      key: const ValueKey('project-memo-input'),
+                      controller: _message,
+                      minLines: 2,
+                      maxLines: 4,
+                      decoration: InputDecoration(
+                        labelText: _replyTo == null ? '프로젝트 메모' : '선택한 메모에 답글',
+                        border: const OutlineInputBorder(),
+                        suffixIcon: _replyTo == null
+                            ? null
+                            : IconButton(
+                                tooltip: '답글 취소',
+                                onPressed: () =>
+                                    setState(() => _replyTo = null),
+                                icon: const Icon(Icons.close),
+                              ),
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    TextField(
+                      key: const ValueKey('project-memo-attachment'),
+                      controller: _attachment,
+                      decoration: const InputDecoration(
+                        labelText: '산출물 파일명 (선택)',
+                        hintText: 'PDF, XLSX, DWG 등',
+                        prefixIcon: Icon(Icons.attach_file),
+                        border: OutlineInputBorder(),
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    Align(
+                      alignment: Alignment.centerRight,
+                      child: FilledButton.icon(
+                        key: const ValueKey('add-project-memo'),
+                        onPressed: _addMemo,
+                        icon: const Icon(Icons.add_task, size: 17),
+                        label: const Text('메모 등록 · To-Do 생성'),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const Divider(height: 1),
+              Padding(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                child: Row(
+                  children: [
+                    const Text('등록한 메모마다 담당자 To-Do가 생성됩니다.'),
+                    const Spacer(),
+                    TextButton(
+                      onPressed: () => Navigator.pop(context),
+                      child: const Text('취소'),
+                    ),
+                    const SizedBox(width: 6),
+                    FilledButton(
+                      key: const ValueKey('save-project-memos'),
+                      onPressed: () => Navigator.pop(
+                        context,
+                        _ProjectMemoResult(
+                          entries: _entries,
+                          newEntries: _newEntries,
+                        ),
+                      ),
+                      child: const Text('이력 저장'),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+}
+
 class _PurchasePanel extends StatelessWidget {
   final _ProjectRow project;
-  const _PurchasePanel({required this.project});
+  final List<_ProjectRow> projects;
+  const _PurchasePanel({required this.project, required this.projects});
 
   @override
   Widget build(BuildContext context) => _panel(
@@ -602,9 +1041,8 @@ class _PurchasePanel extends StatelessWidget {
                 label: const Text('ERP BOM 동기화')),
             const SizedBox(width: 7),
             FilledButton.icon(
-                onPressed: () => showDialog<void>(
-                    context: context,
-                    builder: (_) => _PurchaseInputDialog(project: project)),
+                onPressed: () =>
+                    _openProjectStageInput(context, '구매', project, projects),
                 icon: const Icon(Icons.edit_outlined, size: 16),
                 label: const Text('재고/입고 입력')),
           ],
@@ -623,15 +1061,15 @@ class _PurchasePanel extends StatelessWidget {
 
 class _ProductionPanel extends StatelessWidget {
   final _ProjectRow project;
-  const _ProductionPanel({required this.project});
+  final List<_ProjectRow> projects;
+  const _ProductionPanel({required this.project, required this.projects});
 
   @override
   Widget build(BuildContext context) => _panel(
         title: 'Work Center 생산 진행현황',
         action: FilledButton.icon(
-            onPressed: () => showDialog<void>(
-                context: context,
-                builder: (_) => _ProductionInputDialog(project: project)),
+            onPressed: () =>
+                _openProjectStageInput(context, '생산', project, projects),
             icon: const Icon(Icons.edit_calendar_outlined, size: 16),
             label: const Text('생산 예정일 입력')),
         child: const _CompactTable(
@@ -647,15 +1085,15 @@ class _ProductionPanel extends StatelessWidget {
 
 class _QualityPanel extends StatelessWidget {
   final _ProjectRow project;
-  const _QualityPanel({required this.project});
+  final List<_ProjectRow> projects;
+  const _QualityPanel({required this.project, required this.projects});
 
   @override
   Widget build(BuildContext context) => _panel(
         title: 'IQC · LQC · OQC 단계별 검사 입력',
         action: FilledButton.icon(
-            onPressed: () => showDialog<void>(
-                context: context,
-                builder: (_) => _QualityInputDialog(project: project)),
+            onPressed: () =>
+                _openProjectStageInput(context, '품질', project, projects),
             icon: const Icon(Icons.fact_check_outlined, size: 16),
             label: const Text('검사 결과 입력')),
         child: const _CompactTable(
@@ -671,15 +1109,15 @@ class _QualityPanel extends StatelessWidget {
 
 class _LogisticsPanel extends StatelessWidget {
   final _ProjectRow project;
-  const _LogisticsPanel({required this.project});
+  final List<_ProjectRow> projects;
+  const _LogisticsPanel({required this.project, required this.projects});
 
   @override
   Widget build(BuildContext context) => _panel(
         title: '납품 정보 및 배차·상차 진행현황',
         action: FilledButton.icon(
-            onPressed: () => showDialog<void>(
-                context: context,
-                builder: (_) => _LogisticsInputDialog(project: project)),
+            onPressed: () =>
+                _openProjectStageInput(context, '물류', project, projects),
             icon: const Icon(Icons.local_shipping_outlined, size: 16),
             label: const Text('납품/배차 입력')),
         child: const _CompactTable(
@@ -694,16 +1132,27 @@ class _LogisticsPanel extends StatelessWidget {
 
 class _ClosingPanel extends StatelessWidget {
   final _ProjectRow project;
-  const _ClosingPanel({required this.project});
+  final List<_ProjectRow> projects;
+  const _ClosingPanel({required this.project, required this.projects});
 
   @override
   Widget build(BuildContext context) => _panel(
         title: 'ERP 거래명세서 기준 마감 현황',
-        action: OutlinedButton.icon(
-            onPressed: () => ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(content: Text('마감 이력 Excel을 생성했습니다.'))),
-            icon: const Icon(Icons.download_outlined, size: 16),
-            label: const Text('마감 이력 Excel')),
+        action: Row(
+          children: [
+            OutlinedButton.icon(
+                onPressed: () => ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('마감 이력 Excel을 생성했습니다.'))),
+                icon: const Icon(Icons.download_outlined, size: 16),
+                label: const Text('마감 이력 Excel')),
+            const SizedBox(width: 7),
+            FilledButton.icon(
+                onPressed: () =>
+                    _openProjectStageInput(context, '마감', project, projects),
+                icon: const Icon(Icons.edit_outlined, size: 16),
+                label: const Text('마감 입력')),
+          ],
+        ),
         child: const _CompactTable(
           headers: ['거래명세서', 'ERP 출하일', '매출 마감', '최종 담당자', '완료일', '상태'],
           rows: [
@@ -712,6 +1161,139 @@ class _ClosingPanel extends StatelessWidget {
           ],
         ),
       );
+}
+
+Future<void> _openProjectStageInput(BuildContext context, String stage,
+    _ProjectRow current, List<_ProjectRow> projects) async {
+  final project = await showDialog<_ProjectRow>(
+    context: context,
+    builder: (context) => _ProjectOrderSearchDialog(
+      stage: stage,
+      projects: projects,
+      initial: current,
+    ),
+  );
+  if (project == null || !context.mounted) return;
+  final dialog = switch (stage) {
+    '구매' => _PurchaseInputDialog(project: project),
+    '생산' => _ProductionInputDialog(project: project),
+    '품질' => _QualityInputDialog(project: project),
+    '물류' => _LogisticsInputDialog(project: project),
+    '마감' => _ClosingInputDialog(project: project),
+    _ => null,
+  };
+  if (dialog != null) {
+    await showDialog<void>(context: context, builder: (_) => dialog);
+  }
+}
+
+class _ProjectOrderSearchDialog extends StatefulWidget {
+  final String stage;
+  final List<_ProjectRow> projects;
+  final _ProjectRow initial;
+
+  const _ProjectOrderSearchDialog({
+    required this.stage,
+    required this.projects,
+    required this.initial,
+  });
+
+  @override
+  State<_ProjectOrderSearchDialog> createState() =>
+      _ProjectOrderSearchDialogState();
+}
+
+class _ProjectOrderSearchDialogState extends State<_ProjectOrderSearchDialog> {
+  final _search = TextEditingController();
+  late _ProjectRow _selected;
+
+  @override
+  void initState() {
+    super.initState();
+    _selected = widget.initial;
+  }
+
+  @override
+  void dispose() {
+    _search.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final query = _search.text.trim().toLowerCase();
+    final rows = widget.projects
+        .where((project) =>
+            query.isEmpty ||
+            project.number.toLowerCase().contains(query) ||
+            project.projectName.toLowerCase().contains(query))
+        .toList();
+    final salesStage = widget.stage == '물류' || widget.stage == '마감';
+    return AlertDialog(
+      title: Text('${widget.stage} 입력 · 수주번호 검색'),
+      content: SizedBox(
+        width: 620,
+        height: 430,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Chip(label: Text('담당 조직: ${salesStage ? '영업' : widget.stage}')),
+                const SizedBox(width: 7),
+                const Text('수주번호를 선택한 후 단계별 입력 모달로 이동합니다.'),
+              ],
+            ),
+            const SizedBox(height: 10),
+            TextField(
+              key: const ValueKey('project-order-search-input'),
+              controller: _search,
+              onChanged: (_) => setState(() {}),
+              decoration: const InputDecoration(
+                labelText: '수주번호 또는 프로젝트명',
+                prefixIcon: Icon(Icons.search),
+                border: OutlineInputBorder(),
+              ),
+            ),
+            const SizedBox(height: 10),
+            Expanded(
+              child: rows.isEmpty
+                  ? const Center(child: Text('검색 결과가 없습니다.'))
+                  : ListView.builder(
+                      itemCount: rows.length,
+                      itemBuilder: (context, index) {
+                        final project = rows[index];
+                        final selected = _selected.number == project.number;
+                        return ListTile(
+                          selected: selected,
+                          onTap: () => setState(() => _selected = project),
+                          leading: Icon(selected
+                              ? Icons.radio_button_checked
+                              : Icons.radio_button_unchecked),
+                          title: Text(project.number),
+                          subtitle: Text(
+                              '${project.projectName} · 현재 ${project.stage}'),
+                        );
+                      },
+                    ),
+            ),
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(
+            onPressed: () => Navigator.pop(context), child: const Text('취소')),
+        FilledButton.icon(
+          key: const ValueKey('continue-project-stage-input'),
+          onPressed: rows.any((row) => row.number == _selected.number)
+              ? () => Navigator.pop(context, _selected)
+              : null,
+          icon: const Icon(Icons.arrow_forward, size: 17),
+          label: const Text('선택 후 입력'),
+        ),
+      ],
+    );
+  }
 }
 
 Widget _panel(
@@ -1044,6 +1626,66 @@ class _LogisticsAssignmentForm extends StatelessWidget {
       );
 }
 
+class _ClosingInputDialog extends StatelessWidget {
+  final _ProjectRow project;
+
+  const _ClosingInputDialog({required this.project});
+
+  @override
+  Widget build(BuildContext context) => AlertDialog(
+        title: const Text('ERP 거래명세서 · 매출 마감 입력'),
+        content: SizedBox(
+          width: 560,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              _DialogProjectNumber(project: project),
+              const SizedBox(height: 10),
+              const TextField(
+                decoration: InputDecoration(
+                  labelText: 'ERP 거래명세서 번호',
+                  border: OutlineInputBorder(),
+                ),
+              ),
+              const SizedBox(height: 10),
+              const Row(
+                children: [
+                  Expanded(
+                    child: TextField(
+                      decoration: InputDecoration(
+                        labelText: 'ERP 출하일',
+                        suffixIcon: Icon(Icons.calendar_month),
+                        border: OutlineInputBorder(),
+                      ),
+                    ),
+                  ),
+                  SizedBox(width: 8),
+                  Expanded(
+                    child: TextField(
+                      decoration: InputDecoration(
+                        labelText: '매출 마감일',
+                        suffixIcon: Icon(Icons.calendar_month),
+                        border: OutlineInputBorder(),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 10),
+              const TextField(
+                maxLines: 2,
+                decoration: InputDecoration(
+                  labelText: '영업 마감 비고',
+                  border: OutlineInputBorder(),
+                ),
+              ),
+            ],
+          ),
+        ),
+        actions: _dialogActions(context, '매출 마감 정보를 저장했습니다.'),
+      );
+}
+
 class _DialogProjectNumber extends StatelessWidget {
   final _ProjectRow project;
   const _DialogProjectNumber({required this.project});
@@ -1275,8 +1917,8 @@ class _ProjectStageSummary extends StatelessWidget {
   @override
   Widget build(BuildContext context) => LayoutBuilder(
         builder: (context, constraints) {
-          const counts = [18, 15, 12, 9, 7, 5, 3];
-          final columns = constraints.maxWidth >= 1050 ? 7 : 4;
+          const counts = [15, 12, 9, 7, 5, 3];
+          final columns = constraints.maxWidth >= 1050 ? 6 : 3;
           final width = (constraints.maxWidth - (columns - 1) * 8) / columns;
           return Wrap(
             spacing: 8,
@@ -1311,36 +1953,56 @@ class _ProjectStageSummary extends StatelessWidget {
       );
 }
 
-const _projectStages = ['수주', '설계', '구매', '생산', '품질', '물류', '마감'];
+const _projectStages = ['설계', '구매', '생산', '품질', '물류', '마감'];
+const _projectStageOwners = [
+  '이설계 책임',
+  '김구매 팀장',
+  '박생산 책임',
+  '최품질 책임',
+  '김로빈 책임',
+  '김로빈 책임',
+];
 
-Widget _progressDot(int index, int current) {
+Widget _progressDot(_ProjectRow row, int index, int current) {
   final done = index < current;
   final active = index == current;
-  return Container(
-    width: 24,
-    height: 24,
-    decoration: BoxDecoration(
-      color: done
-          ? RobinTheme.signalGreen
-          : active
-              ? RobinTheme.signalYellow
-              : RobinTheme.background,
-      shape: BoxShape.circle,
-      border: Border.all(
-          color: done
-              ? RobinTheme.signalGreen
-              : active
-                  ? RobinTheme.signalYellow
-                  : RobinTheme.border),
-    ),
-    child: Icon(
-        done
-            ? Icons.check
+  final seed = int.tryParse(row.number.split('-').last) ?? 0;
+  final day = 18 + index + (seed % 3);
+  final completion = done
+      ? '2026-08-${day.toString().padLeft(2, '0')}'
+      : active
+          ? '진행 중'
+          : '-';
+  return Tooltip(
+    key: ValueKey('project-stage-${row.number}-${_projectStages[index]}'),
+    message:
+        '${_projectStages[index]} · 담당자: ${_projectStageOwners[index]} · 완료일: $completion',
+    child: Container(
+      width: 24,
+      height: 24,
+      decoration: BoxDecoration(
+        color: done
+            ? RobinTheme.signalGreen
             : active
-                ? Icons.more_horiz
-                : Icons.circle,
-        size: 13,
-        color: done || active ? Colors.white : RobinTheme.textMuted),
+                ? RobinTheme.signalYellow
+                : RobinTheme.background,
+        shape: BoxShape.circle,
+        border: Border.all(
+            color: done
+                ? RobinTheme.signalGreen
+                : active
+                    ? RobinTheme.signalYellow
+                    : RobinTheme.border),
+      ),
+      child: Icon(
+          done
+              ? Icons.check
+              : active
+                  ? Icons.more_horiz
+                  : Icons.circle,
+          size: 13,
+          color: done || active ? Colors.white : RobinTheme.textMuted),
+    ),
   );
 }
 
@@ -1488,7 +2150,38 @@ class _ProjectRow {
   final String changedDueDate;
   final bool urgent;
   final String memo;
+  final String channel;
 
   const _ProjectRow(this.number, this.projectName, this.stage, this.dueDate,
-      this.changedDueDate, this.urgent, this.memo);
+      this.changedDueDate, this.urgent, this.memo, this.channel);
+}
+
+class _ProjectMemoEntry {
+  final String id;
+  final String? parentId;
+  final String author;
+  final String assignee;
+  final String message;
+  final String at;
+  final String? attachment;
+
+  const _ProjectMemoEntry({
+    required this.id,
+    required this.parentId,
+    required this.author,
+    required this.assignee,
+    required this.message,
+    required this.at,
+    required this.attachment,
+  });
+}
+
+class _ProjectMemoResult {
+  final List<_ProjectMemoEntry> entries;
+  final List<_ProjectMemoEntry> newEntries;
+
+  const _ProjectMemoResult({
+    required this.entries,
+    required this.newEntries,
+  });
 }

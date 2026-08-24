@@ -215,7 +215,7 @@ class _LoginScreenState extends State<LoginScreen> {
                   border: Border.all(color: RobinTheme.border),
                 ),
                 child: Text(
-                  '관리자  admin / 1234\n직원  staff / 1234',
+                  '관리자  admin / 1234\n직원  staff / 1234\n대리점  kimdealer / 1234',
                   style: RobinTheme.bodySm.copyWith(height: 1.6),
                 ),
               ),
