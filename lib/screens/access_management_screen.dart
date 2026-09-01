@@ -5,6 +5,7 @@ import 'package:intl/intl.dart';
 import '../models/access_control.dart';
 import '../theme/robin_theme.dart';
 import '../widgets/app_bar.dart';
+import '../widgets/robin_dialog.dart';
 import '../widgets/user_profile.dart';
 
 class EmployeeManagementScreen extends StatelessWidget {
@@ -191,7 +192,7 @@ class EmployeeManagementScreen extends StatelessWidget {
       context: context,
       barrierDismissible: false,
       builder: (dialogContext) => StatefulBuilder(
-        builder: (context, setDialogState) => AlertDialog(
+        builder: (context, setDialogState) => RobinAlertDialog(
           title: Text(editing ? '직원 수정·권한 변경' : '직원 등록'),
           content: SizedBox(
             width: 560,
@@ -513,7 +514,7 @@ class EmployeeManagementScreen extends StatelessWidget {
     }
     final confirmed = await showDialog<bool>(
       context: context,
-      builder: (dialogContext) => AlertDialog(
+      builder: (dialogContext) => RobinAlertDialog(
         title: const Text('직원 삭제'),
         content: Text('${employee.name} ${employee.rank} 계정을 삭제할까요?\n'
             '부서 권한과 Python 권한 그룹 연결도 함께 제거됩니다.'),
@@ -847,7 +848,7 @@ class _TeamManagementScreenState extends State<TeamManagementScreen> {
       context: context,
       barrierDismissible: false,
       builder: (dialogContext) => StatefulBuilder(
-        builder: (context, setDialogState) => AlertDialog(
+        builder: (context, setDialogState) => RobinAlertDialog(
           title: Text(editing ? '팀 수정' : '팀 추가'),
           content: SizedBox(
             width: 620,
@@ -978,7 +979,7 @@ class _TeamManagementScreenState extends State<TeamManagementScreen> {
       BuildContext context, RobinTeam team) async {
     final confirmed = await showDialog<bool>(
       context: context,
-      builder: (dialogContext) => AlertDialog(
+      builder: (dialogContext) => RobinAlertDialog(
         title: const Text('팀 삭제'),
         content: Text('${team.name}을 삭제할까요? 직원 계정은 삭제되지 않습니다.'),
         actions: [
@@ -1366,7 +1367,7 @@ class _PythonGroupPanelState extends State<_PythonGroupPanel> {
     final formKey = GlobalKey<FormState>();
     final saved = await showDialog<bool>(
       context: context,
-      builder: (dialogContext) => AlertDialog(
+      builder: (dialogContext) => RobinAlertDialog(
         title: Text(group == null ? 'Python 권한 그룹 추가' : '그룹 정보 수정'),
         content: SizedBox(
           width: 430,
@@ -1430,7 +1431,7 @@ class _PythonGroupPanelState extends State<_PythonGroupPanel> {
       BuildContext context, PythonPermissionGroup group) async {
     final confirmed = await showDialog<bool>(
       context: context,
-      builder: (dialogContext) => AlertDialog(
+      builder: (dialogContext) => RobinAlertDialog(
         title: const Text('Python 권한 그룹 삭제'),
         content: Text('${group.name} 그룹을 삭제할까요?\n직원에게 연결된 해당 그룹도 해제됩니다.'),
         actions: [
@@ -1666,7 +1667,7 @@ class _PythonAppActionPanelState extends State<_PythonAppActionPanel> {
     final formKey = GlobalKey<FormState>();
     final saved = await showDialog<bool>(
       context: context,
-      builder: (dialogContext) => AlertDialog(
+      builder: (dialogContext) => RobinAlertDialog(
         title: Text(app == null ? 'Python 앱 추가' : 'Python 앱 정보 수정'),
         content: SizedBox(
           width: 450,
@@ -1751,7 +1752,7 @@ class _PythonAppActionPanelState extends State<_PythonAppActionPanel> {
     final formKey = GlobalKey<FormState>();
     final saved = await showDialog<bool>(
       context: context,
-      builder: (dialogContext) => AlertDialog(
+      builder: (dialogContext) => RobinAlertDialog(
         title: Text('${app.name} 기능 권한 추가'),
         content: SizedBox(
           width: 450,
@@ -1875,7 +1876,7 @@ class _PythonAppActionPanelState extends State<_PythonAppActionPanel> {
           BuildContext context, String title, String message) async =>
       await showDialog<bool>(
         context: context,
-        builder: (dialogContext) => AlertDialog(
+        builder: (dialogContext) => RobinAlertDialog(
           title: Text(title),
           content: Text(message),
           actions: [
@@ -1996,7 +1997,7 @@ class _PermissionRequestPanel extends StatelessWidget {
       context: context,
       barrierDismissible: false,
       builder: (dialogContext) => StatefulBuilder(
-        builder: (context, setDialogState) => AlertDialog(
+        builder: (context, setDialogState) => RobinAlertDialog(
           title: Text('${employeeDisplayName(request.employeeId)} 권한 설정'),
           content: SizedBox(
             width: 500,
@@ -2123,7 +2124,7 @@ class _PermissionRequestPanel extends StatelessWidget {
     final decisionController = TextEditingController();
     await showDialog<void>(
       context: context,
-      builder: (dialogContext) => AlertDialog(
+      builder: (dialogContext) => RobinAlertDialog(
         title: const Text('권한 품의 반려'),
         content: Form(
           key: formKey,

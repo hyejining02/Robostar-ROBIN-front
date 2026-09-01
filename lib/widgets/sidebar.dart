@@ -34,7 +34,6 @@ class RobinSidebar extends StatelessWidget {
               ),
             ),
           ),
-          _todo(),
           _logout(context),
         ],
       ),
@@ -189,31 +188,6 @@ class RobinSidebar extends StatelessWidget {
       ),
     );
   }
-
-  Widget _todo() => Container(
-        margin: const EdgeInsets.all(12),
-        padding: const EdgeInsets.all(12),
-        decoration: BoxDecoration(
-          color: RobinTheme.primary.withValues(alpha: .13),
-          borderRadius: BorderRadius.circular(8),
-          border: Border.all(color: RobinTheme.primary.withValues(alpha: .35)),
-        ),
-        child: const Row(
-          children: [
-            Icon(Icons.notifications_active_outlined,
-                color: Color(0xFFFFBACB), size: 18),
-            SizedBox(width: 9),
-            Expanded(
-              child: Text('내 To-Do  4건',
-                  style: TextStyle(
-                      color: Colors.white,
-                      fontSize: 11,
-                      fontWeight: FontWeight.w600)),
-            ),
-            Icon(Icons.chevron_right, color: Color(0xFF99999F), size: 17),
-          ],
-        ),
-      );
 
   Widget _logout(BuildContext context) => Padding(
         padding: const EdgeInsets.fromLTRB(12, 0, 12, 12),

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../theme/robin_theme.dart';
+import 'robin_dialog.dart';
 
 enum RobinNotificationType { assignment, schedule, approval, update }
 
@@ -133,7 +134,7 @@ Future<void> showRobinNotificationDetail(
 ) async {
   await showDialog<void>(
     context: context,
-    builder: (dialogContext) => AlertDialog(
+    builder: (dialogContext) => RobinAlertDialog(
       titlePadding: const EdgeInsets.fromLTRB(22, 20, 16, 0),
       contentPadding: const EdgeInsets.fromLTRB(22, 18, 22, 8),
       actionsPadding: const EdgeInsets.fromLTRB(16, 8, 16, 16),

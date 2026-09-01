@@ -6,6 +6,7 @@ import '../models/order_project.dart';
 import '../theme/robin_theme.dart';
 import '../widgets/app_bar.dart';
 import '../widgets/notification_center.dart';
+import '../widgets/robin_dialog.dart';
 import '../widgets/user_profile.dart';
 import 'pipeline_registration_screen.dart';
 
@@ -53,7 +54,7 @@ class PortalModuleScreen extends StatelessWidget {
       backgroundColor: RobinTheme.background,
       appBar: RobinAppBar(title: _title),
       body: Padding(
-        padding: const EdgeInsets.all(22),
+        padding: const EdgeInsets.all(16),
         child: switch (type) {
           PortalModule.pipeline =>
             PipelineRegistrationView(onNavigate: onNavigate),
@@ -416,7 +417,7 @@ class _PipelineViewState extends State<_PipelineView> {
       context: context,
       builder: (dialogContext) => DefaultTabController(
         length: 3,
-        child: AlertDialog(
+        child: RobinAlertDialog(
           title: const Text('파이프라인 단계별 입력'),
           content: const SizedBox(
             width: 900,
@@ -460,7 +461,7 @@ class _PipelineViewState extends State<_PipelineView> {
   Future<void> _changeLeadStage(_LeadData lead) async {
     final selectedStage = await showDialog<int>(
       context: context,
-      builder: (dialogContext) => SimpleDialog(
+      builder: (dialogContext) => RobinSimpleDialog(
         title: Text('${lead.number} 단계 변경'),
         children: [
           for (var index = 0; index < _stageNames.length; index++)
@@ -515,7 +516,7 @@ class _PipelineViewState extends State<_PipelineView> {
   Future<void> _processSuccess(_LeadData lead) async {
     final confirmed = await showDialog<bool>(
       context: context,
-      builder: (dialogContext) => AlertDialog(
+      builder: (dialogContext) => RobinAlertDialog(
         title: const Text('수주 성공 처리'),
         content: SizedBox(
           width: 470,
@@ -561,7 +562,7 @@ class _PipelineViewState extends State<_PipelineView> {
     final goToOrderRegistration = await showDialog<bool>(
       context: context,
       barrierDismissible: false,
-      builder: (dialogContext) => AlertDialog(
+      builder: (dialogContext) => RobinAlertDialog(
         title: const Row(
           children: [
             Icon(Icons.check_circle, color: RobinTheme.signalGreen),
@@ -942,7 +943,7 @@ class _HistoryNoteDialogState extends State<_HistoryNoteDialog> {
   }
 
   @override
-  Widget build(BuildContext context) => AlertDialog(
+  Widget build(BuildContext context) => RobinAlertDialog(
         title: Text(widget.title),
         content: SizedBox(
           width: 470,
@@ -1097,7 +1098,7 @@ class _DropRegistrationDialogState extends State<_DropRegistrationDialog> {
   }
 
   @override
-  Widget build(BuildContext context) => AlertDialog(
+  Widget build(BuildContext context) => RobinAlertDialog(
         title: const Text('수주 실패 정보 입력'),
         content: SizedBox(
           width: 500,
@@ -1245,7 +1246,7 @@ class _LeadRegistrationDialogState extends State<_LeadRegistrationDialog> {
 
   @override
   Widget build(BuildContext context) {
-    return AlertDialog(
+    return RobinAlertDialog(
       title: const Text('파이프라인 등록'),
       content: SizedBox(
         width: 480,
@@ -2214,7 +2215,7 @@ class _OrderRegistrationViewState extends State<_OrderRegistrationView> {
     await showDialog<void>(
         context: context,
         barrierDismissible: false,
-        builder: (dialogContext) => AlertDialog(
+        builder: (dialogContext) => RobinAlertDialog(
               title: const Row(children: [
                 Icon(Icons.check_circle, color: RobinTheme.signalGreen),
                 SizedBox(width: 9),
@@ -2487,7 +2488,7 @@ class _OrganizationAppsView extends StatelessWidget {
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (dialogContext) => StatefulBuilder(
-        builder: (context, setDialogState) => AlertDialog(
+        builder: (context, setDialogState) => RobinAlertDialog(
           title: Text('${app.name} 권한 그룹 신청'),
           content: SizedBox(
             width: 430,

@@ -1,6 +1,9 @@
 import 'package:flutter/material.dart';
 
+import '../services/desktop_file_service.dart';
 import '../theme/robin_theme.dart';
+import '../utils/search_query.dart';
+import '../widgets/robin_dialog.dart';
 import '../widgets/user_profile.dart';
 
 class PipelineRegistrationView extends StatefulWidget {
@@ -22,11 +25,11 @@ class _PipelineRegistrationViewState extends State<PipelineRegistrationView> {
     'Closed Lost',
   ];
   static const _stageDescriptions = [
-    '물동 · 최종 합의',
-    '견적 · 컨셉 설계',
-    '상세 Spec. · 가격',
-    '수주 성공',
-    '수주 실패',
+    '물동 · 등록가능',
+    '컨셉설계 · 등록가능',
+    '원가/결재 · 전환',
+    '수주 성공 · 조회',
+    '수주 실패 · 조회',
   ];
   static const _stageColors = [
     Color(0xFF2E7D32),
@@ -41,6 +44,8 @@ class _PipelineRegistrationViewState extends State<PipelineRegistrationView> {
   final _quantityController = TextEditingController(text: '1');
   final _strokeController = TextEditingController(text: '1000');
   final _orderPriceController = TextEditingController(text: '15,000,000');
+  final _proposalMessageController = TextEditingController();
+  final _lostDetailController = TextEditingController();
   final _assessTableController = ScrollController();
 
   final List<_PipelineLead> _leads = [
@@ -196,13 +201,14 @@ class _PipelineRegistrationViewState extends State<PipelineRegistrationView> {
 
   int _activeStage = 0;
   _PipelineLead? _selected;
-  String _ratioFilter = '전체 재료비율';
-  String _channelFilter = '전체 채널';
+  String _overviewStageFilter = '전체 단계';
+  String _customerFilter = '고객사';
   String _productGroup = 'linear';
   int _modelIndex = 0;
   int _payloadCost = 0;
   int _axisCost = 0;
   bool _evidenceAttached = false;
+  String _lostReason = '경쟁사 선점';
   final Set<String> _selectedOptions = {};
   final Map<String, _ProposalCollaborationData> _proposalCollaborations = {};
 
@@ -240,6 +246,8 @@ class _PipelineRegistrationViewState extends State<PipelineRegistrationView> {
     _quantityController.dispose();
     _strokeController.dispose();
     _orderPriceController.dispose();
+    _proposalMessageController.dispose();
+    _lostDetailController.dispose();
     _assessTableController.dispose();
     super.dispose();
   }
@@ -247,41 +255,52 @@ class _PipelineRegistrationViewState extends State<PipelineRegistrationView> {
   @override
   Widget build(BuildContext context) {
     if (robinUserProfile.value.isDealer) return _buildDealerWorkspace();
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        _buildIntro(),
-        const SizedBox(height: 14),
-        _buildStageStrip(),
-        const SizedBox(height: 12),
-        _buildFilters(),
-        const SizedBox(height: 12),
-        Expanded(
-          child: LayoutBuilder(
+    return SingleChildScrollView(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          _buildIntro(),
+          const SizedBox(height: 10),
+          _buildStageStrip(),
+          const SizedBox(height: 8),
+          _buildFilters(),
+          const SizedBox(height: 8),
+          _buildPipelineOverview(),
+          const SizedBox(height: 8),
+          LayoutBuilder(
             builder: (context, constraints) {
+              final activeWorkspace = _activeStage == 0
+                  ? SizedBox(height: 560, child: _buildActiveWorkspace())
+                  : _buildActiveWorkspace();
               final workspace = Container(
                 decoration: _cardDecoration(),
                 child: Column(
+                  mainAxisSize: MainAxisSize.min,
                   children: [
                     _buildWorkspaceTabs(),
                     const Divider(height: 1),
-                    Expanded(child: _buildActiveWorkspace()),
+                    activeWorkspace,
                   ],
                 ),
               );
-              if (constraints.maxWidth < 1250) return workspace;
+              if (constraints.maxWidth < 1380) return workspace;
               return Row(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Expanded(child: workspace),
-                  const SizedBox(width: 12),
-                  SizedBox(width: 340, child: _buildHistoryPanel()),
+                  const SizedBox(width: 8),
+                  SizedBox(
+                    width: 292,
+                    height: 720,
+                    child: _buildHistoryPanel(),
+                  ),
                 ],
               );
             },
           ),
-        ),
-      ],
+          const SizedBox(height: 12),
+        ],
+      ),
     );
   }
 
@@ -363,7 +382,7 @@ class _PipelineRegistrationViewState extends State<PipelineRegistrationView> {
               Text('파이프라인 등록', style: RobinTheme.headingLg),
               const SizedBox(height: 4),
               Text(
-                '물동 → 컨셉설계 → 상세 Spec.·가격·결재를 하나의 수주 이력으로 관리합니다.',
+                '전체 수주를 선택한 뒤 Assess → Proposal → Negotiation → Closed Won/Lost 흐름으로 등록·전환합니다.',
                 style: RobinTheme.bodySm,
               ),
             ],
@@ -378,31 +397,58 @@ class _PipelineRegistrationViewState extends State<PipelineRegistrationView> {
                 label: const Text('단계별 입력'),
               ),
               FilledButton.icon(
-                onPressed: _registerPipeline,
+                onPressed: _activeStage <= 1
+                    ? _registerPipeline
+                    : () =>
+                        _message('신규 수주는 Assess 또는 Proposal에서만 등록할 수 있습니다.'),
                 icon: const Icon(Icons.add, size: 18),
-                label: const Text('신규 파이프라인'),
+                label: const Text('신규 수주 등록'),
               ),
             ],
           );
-          if (constraints.maxWidth < 1050) {
-            return Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [title, const SizedBox(height: 10), actions],
-            );
-          }
-          return Row(
+          final header = constraints.maxWidth < 1050
+              ? Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [title, const SizedBox(height: 10), actions],
+                )
+              : Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Expanded(child: title),
+                    const SizedBox(width: 12),
+                    actions,
+                  ],
+                );
+          return Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Expanded(child: title),
-              const SizedBox(width: 12),
-              actions,
+              header,
+              const SizedBox(height: 8),
+              Container(
+                width: double.infinity,
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 11, vertical: 8),
+                decoration: BoxDecoration(
+                  color: RobinTheme.primary.withValues(alpha: .055),
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(
+                      color: RobinTheme.primary.withValues(alpha: .24)),
+                ),
+                child: Text(
+                  '등록 원칙 · 신규 수주는 Assess 또는 Proposal에서만 생성합니다. Negotiation과 Closed Won/Lost는 기존 수주의 단계 전환·조회·이력 관리 화면입니다.',
+                  style: RobinTheme.labelXs.copyWith(
+                    color: RobinTheme.primary,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ),
             ],
           );
         },
       );
 
   Widget _buildStageStrip() => SizedBox(
-        height: 158,
+        height: 88,
         child: ListView.separated(
           scrollDirection: Axis.horizontal,
           itemCount: _stageNames.length,
@@ -422,8 +468,9 @@ class _PipelineRegistrationViewState extends State<PipelineRegistrationView> {
               borderRadius: BorderRadius.circular(9),
               child: AnimatedContainer(
                 duration: const Duration(milliseconds: 160),
-                width: 196,
-                padding: const EdgeInsets.all(11),
+                width: 206,
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
                 decoration: BoxDecoration(
                   color: active
                       ? _stageColors[index].withValues(alpha: .07)
@@ -455,14 +502,21 @@ class _PipelineRegistrationViewState extends State<PipelineRegistrationView> {
                         Text('${rows.length}건', style: RobinTheme.headingSm),
                       ],
                     ),
-                    const SizedBox(height: 4),
-                    Text(_stageDescriptions[index],
-                        maxLines: 2, style: RobinTheme.labelXs),
                     const Spacer(),
-                    Text(
-                      '${_compactMoney(amount)} · 주문 $orders · 사양 $specs',
-                      style: RobinTheme.labelXs
-                          .copyWith(color: RobinTheme.textSecondary),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: Text(_stageDescriptions[index],
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: RobinTheme.labelXs),
+                        ),
+                        Text(
+                          '${_compactMoney(amount)} · 변경 ${orders + specs}',
+                          style: RobinTheme.labelXs
+                              .copyWith(color: RobinTheme.textSecondary),
+                        ),
+                      ],
                     ),
                   ],
                 ),
@@ -472,79 +526,266 @@ class _PipelineRegistrationViewState extends State<PipelineRegistrationView> {
         ),
       );
 
-  Widget _buildFilters() => Container(
-        padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 8),
-        decoration: _cardDecoration(),
-        child: Wrap(
-          spacing: 8,
-          runSpacing: 8,
-          crossAxisAlignment: WrapCrossAlignment.center,
-          children: [
-            SizedBox(
-              width: 280,
-              child: TextField(
-                controller: _searchController,
-                onChanged: (_) => setState(() {}),
-                decoration: const InputDecoration(
-                  hintText: 'ERP 고객사·대리점·PJT명 검색',
-                  prefixIcon: Icon(Icons.search, size: 18),
-                  border: OutlineInputBorder(),
-                  isDense: true,
-                ),
+  Widget _buildPipelineOverview() {
+    final rows = _filteredLeads;
+    final selectedHistory = _selected == null
+        ? const <_PipelineHistory>[]
+        : _histories
+            .where((history) => history.number == _selected!.number)
+            .take(4)
+            .toList();
+    return SizedBox(
+      height: 152,
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Expanded(
+            child: Container(
+              decoration: _cardDecoration(),
+              child: Column(
+                children: [
+                  Container(
+                    height: 34,
+                    padding: const EdgeInsets.symmetric(horizontal: 10),
+                    color: RobinTheme.background,
+                    child: Row(
+                      children: [
+                        SizedBox(
+                            width: 104,
+                            child: Text('가수주번호', style: RobinTheme.labelXs)),
+                        Expanded(
+                            flex: 3,
+                            child:
+                                Text('프로젝트 / 고객사', style: RobinTheme.labelXs)),
+                        SizedBox(
+                            width: 96,
+                            child: Text('단계', style: RobinTheme.labelXs)),
+                        SizedBox(
+                            width: 86,
+                            child: Text('예상금액', style: RobinTheme.labelXs)),
+                        SizedBox(
+                            width: 86,
+                            child: Text('변경', style: RobinTheme.labelXs)),
+                        SizedBox(
+                            width: 92,
+                            child: Text('담당자', style: RobinTheme.labelXs)),
+                      ],
+                    ),
+                  ),
+                  Expanded(
+                    child: ListView.builder(
+                      padding: EdgeInsets.zero,
+                      itemCount: rows.length,
+                      itemBuilder: (context, index) {
+                        final lead = rows[index];
+                        final selected = _selected?.number == lead.number;
+                        return InkWell(
+                          key: ValueKey('pipeline-overview-${lead.number}'),
+                          onTap: () => setState(() {
+                            _selected = lead;
+                            _activeStage = lead.stage;
+                          }),
+                          child: Container(
+                            height: 38,
+                            padding: const EdgeInsets.symmetric(horizontal: 10),
+                            color: selected
+                                ? RobinTheme.primary.withValues(alpha: .06)
+                                : null,
+                            child: Row(
+                              children: [
+                                SizedBox(
+                                  width: 104,
+                                  child: Text(lead.number,
+                                      style: RobinTheme.labelXs.copyWith(
+                                          color: RobinTheme.primary,
+                                          fontWeight: FontWeight.w700)),
+                                ),
+                                Expanded(
+                                  flex: 3,
+                                  child: Text(
+                                      '${lead.project} · ${lead.customer}',
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: RobinTheme.bodySm),
+                                ),
+                                SizedBox(
+                                    width: 96,
+                                    child: _stageBadgeCompact(lead.stage)),
+                                SizedBox(
+                                    width: 86,
+                                    child: Text(_compactMoney(lead.amount),
+                                        style: RobinTheme.bodySm)),
+                                SizedBox(
+                                    width: 86,
+                                    child: Text(
+                                        '주문 ${lead.orderChanges} · 사양 ${lead.specChanges}',
+                                        style: RobinTheme.labelXs)),
+                                SizedBox(
+                                    width: 92,
+                                    child: Text(lead.owner,
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
+                                        style: RobinTheme.bodySm)),
+                              ],
+                            ),
+                          ),
+                        );
+                      },
+                    ),
+                  ),
+                ],
               ),
             ),
-            SizedBox(
-              width: 150,
-              child: DropdownButtonFormField<String>(
-                isExpanded: true,
-                initialValue: _channelFilter,
-                decoration: const InputDecoration(
-                    labelText: '채널',
-                    border: OutlineInputBorder(),
-                    isDense: true),
-                items: const ['전체 채널', '직판', '대리점']
-                    .map((item) =>
-                        DropdownMenuItem(value: item, child: Text(item)))
-                    .toList(),
-                onChanged: (value) =>
-                    setState(() => _channelFilter = value ?? '전체 채널'),
+          ),
+          const SizedBox(width: 8),
+          SizedBox(
+            width: 290,
+            child: Container(
+              padding: const EdgeInsets.all(10),
+              decoration: _cardDecoration(),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text('선택 수주 단계 변경 이력', style: RobinTheme.headingSm),
+                  const SizedBox(height: 5),
+                  if (_selected == null)
+                    Expanded(
+                      child: Center(
+                        child: Text('수주 건을 선택하세요.', style: RobinTheme.labelXs),
+                      ),
+                    )
+                  else if (selectedHistory.isEmpty)
+                    Expanded(
+                      child: Center(
+                        child: Text('${_selected!.number} · 저장된 이력 없음',
+                            style: RobinTheme.labelXs),
+                      ),
+                    )
+                  else
+                    Expanded(
+                      child: ListView(
+                        children: [
+                          for (final history in selectedHistory)
+                            Padding(
+                              padding: const EdgeInsets.only(bottom: 5),
+                              child: Text(
+                                '${history.from} → ${history.to} · ${history.at.substring(5, 16)}',
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: RobinTheme.labelXs,
+                              ),
+                            ),
+                        ],
+                      ),
+                    ),
+                ],
               ),
             ),
-            SizedBox(
-              width: 170,
-              child: DropdownButtonFormField<String>(
-                isExpanded: true,
-                initialValue: _ratioFilter,
-                decoration: const InputDecoration(
-                    labelText: '재료비율 %',
-                    border: OutlineInputBorder(),
-                    isDense: true),
-                items: const [
-                  '전체 재료비율',
-                  '75% 미만',
-                  '75~80%',
-                  '80% 초과',
-                ]
-                    .map((item) =>
-                        DropdownMenuItem(value: item, child: Text(item)))
-                    .toList(),
-                onChanged: (value) =>
-                    setState(() => _ratioFilter = value ?? '전체 재료비율'),
-              ),
-            ),
-            const Chip(
-              avatar: Icon(Icons.cloud_done_outlined, size: 16),
-              label: Text('ERP 기초데이터 연계'),
-            ),
-            OutlinedButton.icon(
-              onPressed: _showHistoryPanelDialog,
-              icon: const Icon(Icons.history, size: 17),
-              label: const Text('단계 변경 이력'),
-            ),
-            Text('조회 ${_filteredForStage.length}건', style: RobinTheme.bodySm),
-          ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _stageBadgeCompact(int stage) => Align(
+        alignment: Alignment.centerLeft,
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
+          decoration: BoxDecoration(
+            color: _stageColors[stage].withValues(alpha: .09),
+            borderRadius: BorderRadius.circular(10),
+          ),
+          child: Text(_stageNames[stage],
+              style: RobinTheme.labelXs.copyWith(color: _stageColors[stage])),
         ),
       );
+
+  Widget _probabilityDot(bool active) => Center(
+        child: Icon(
+          active ? Icons.circle : Icons.radio_button_unchecked,
+          size: 12,
+          color: active ? RobinTheme.signalGreen : RobinTheme.textMuted,
+        ),
+      );
+
+  Widget _buildFilters() {
+    final customers = _leads.map((lead) => lead.customer).toSet().toList()
+      ..sort();
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 8),
+      decoration: _cardDecoration(),
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final compact = constraints.maxWidth < 650;
+          final searchWidth = compact
+              ? constraints.maxWidth
+              : (constraints.maxWidth - 274).clamp(220.0, double.infinity);
+          return Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            crossAxisAlignment: WrapCrossAlignment.center,
+            children: [
+              SizedBox(
+                width: compact ? (constraints.maxWidth - 8) / 2 : 120,
+                child: DropdownButtonFormField<String>(
+                  key: const ValueKey('pipeline-search-stage'),
+                  isExpanded: true,
+                  initialValue: _overviewStageFilter,
+                  decoration: const InputDecoration(
+                    border: OutlineInputBorder(),
+                    isDense: true,
+                  ),
+                  items: ['전체 단계', ..._stageNames]
+                      .map((item) =>
+                          DropdownMenuItem(value: item, child: Text(item)))
+                      .toList(),
+                  onChanged: (value) {
+                    if (value == null) return;
+                    setState(() {
+                      _overviewStageFilter = value;
+                      final stage = _stageNames.indexOf(value);
+                      if (stage >= 0) _activeStage = stage;
+                    });
+                  },
+                ),
+              ),
+              SizedBox(
+                width: compact ? (constraints.maxWidth - 8) / 2 : 130,
+                child: DropdownButtonFormField<String>(
+                  key: const ValueKey('pipeline-search-customer'),
+                  isExpanded: true,
+                  initialValue: _customerFilter,
+                  decoration: const InputDecoration(
+                    border: OutlineInputBorder(),
+                    isDense: true,
+                  ),
+                  items: ['고객사', ...customers]
+                      .map((item) =>
+                          DropdownMenuItem(value: item, child: Text(item)))
+                      .toList(),
+                  onChanged: (value) =>
+                      setState(() => _customerFilter = value ?? '고객사'),
+                ),
+              ),
+              SizedBox(
+                width: searchWidth,
+                child: TextField(
+                  key: const ValueKey('pipeline-search-query'),
+                  controller: _searchController,
+                  onChanged: (_) => setState(() {}),
+                  decoration: const InputDecoration(
+                    hintText: '가수주번호 / 프로젝트명 / % 조건 검색',
+                    border: OutlineInputBorder(),
+                    isDense: true,
+                  ),
+                ),
+              ),
+            ],
+          );
+        },
+      ),
+    );
+  }
 
   Widget _buildWorkspaceTabs() => SizedBox(
         height: 52,
@@ -566,12 +807,12 @@ class _PipelineRegistrationViewState extends State<PipelineRegistrationView> {
                         : Colors.transparent,
                   ),
                   child: Text(index == 0
-                      ? 'Assess · 물동'
+                      ? 'Assess · 물동 · 등록가능'
                       : index == 1
-                          ? 'Proposal · 컨셉설계'
+                          ? 'Proposal · 컨셉설계 · 등록가능'
                           : index == 2
-                              ? 'Negotiation · 원가/결재'
-                              : _stageNames[index]),
+                              ? 'Negotiation · 원가/결재 · 전환'
+                              : '${_stageNames[index]} · 조회'),
                 ),
               ),
           ],
@@ -582,7 +823,8 @@ class _PipelineRegistrationViewState extends State<PipelineRegistrationView> {
         0 => _buildAssessWorkspace(),
         1 => _buildProposalWorkspace(),
         2 => _buildNegotiationWorkspace(),
-        _ => _buildTerminalWorkspace(),
+        3 => _buildClosedWonWorkspace(),
+        _ => _buildClosedLostWorkspace(),
       };
 
   Widget _buildAssessWorkspace() => Column(
@@ -593,10 +835,16 @@ class _PipelineRegistrationViewState extends State<PipelineRegistrationView> {
               children: [
                 Expanded(
                   child: Text(
-                    '수주물동관리 양식의 47개 필드 중 핵심값을 표시합니다. 행을 선택한 뒤 상세 버튼을 누르면 전체 항목을 확인할 수 있습니다.',
+                    '월 단위 물동 Excel을 업로드하면 가번호가 자동 발행됩니다. B0~M 가능성을 확인하고 Proposal로 연결합니다.',
                     style: RobinTheme.bodySm,
                   ),
                 ),
+                OutlinedButton.icon(
+                  onPressed: _downloadTrafficTemplate,
+                  icon: const Icon(Icons.download_outlined, size: 17),
+                  label: const Text('양식 다운로드'),
+                ),
+                const SizedBox(width: 7),
                 OutlinedButton.icon(
                   onPressed: _showExcelImportDialog,
                   icon: const Icon(Icons.upload_file_outlined, size: 17),
@@ -640,27 +888,25 @@ class _PipelineRegistrationViewState extends State<PipelineRegistrationView> {
                         headingTextStyle: RobinTheme.bodySm
                             .copyWith(fontWeight: FontWeight.w700),
                         dataTextStyle: RobinTheme.bodySm,
-                        headingRowHeight: 52,
-                        dataRowMinHeight: 52,
-                        dataRowMaxHeight: 82,
+                        headingRowHeight: 38,
+                        dataRowMinHeight: 38,
+                        dataRowMaxHeight: 48,
                         columns: [
-                          DataColumn(label: _pipelineTableText(52, '수주월')),
-                          DataColumn(label: _pipelineTableText(52, '입고월')),
                           DataColumn(
                               label:
                                   _pipelineTableText(112, '가수주번호 / ERP 수주번호')),
-                          DataColumn(label: _pipelineTableText(68, '담당자')),
-                          DataColumn(label: _pipelineTableText(38, '제품류')),
-                          DataColumn(label: _pipelineTableText(38, '향지')),
-                          DataColumn(label: _pipelineTableText(70, '채널/거래처')),
-                          DataColumn(label: _pipelineTableText(75, 'End User')),
-                          DataColumn(label: _pipelineTableText(105, 'PJT명')),
-                          DataColumn(label: _pipelineTableText(28, '수량')),
-                          DataColumn(label: _pipelineTableText(60, '판가(만원)')),
-                          DataColumn(label: _pipelineTableText(65, '매출액(만원)')),
-                          DataColumn(label: _pipelineTableText(55, '재료비율')),
+                          DataColumn(label: _pipelineTableText(68, '고객사')),
+                          DataColumn(label: _pipelineTableText(76, '대리점')),
                           DataColumn(
-                              label: _pipelineTableText(55, 'BEST/WORST')),
+                              label: _pipelineTableText(130, '프로젝트명(예상)')),
+                          DataColumn(label: _pipelineTableText(24, 'B0')),
+                          DataColumn(label: _pipelineTableText(24, 'B1')),
+                          DataColumn(label: _pipelineTableText(24, 'B2')),
+                          DataColumn(label: _pipelineTableText(24, 'B3')),
+                          DataColumn(label: _pipelineTableText(24, 'M')),
+                          DataColumn(label: _pipelineTableText(70, '예상금액')),
+                          DataColumn(label: _pipelineTableText(58, '업로드월')),
+                          DataColumn(label: _pipelineTableText(62, '상태')),
                           DataColumn(label: _pipelineTableText(48, '상세')),
                         ],
                         rows: _filteredForStage.map((lead) {
@@ -671,9 +917,6 @@ class _PipelineRegistrationViewState extends State<PipelineRegistrationView> {
                             onSelectChanged: (_) =>
                                 setState(() => _selected = lead),
                             cells: [
-                              DataCell(_pipelineTableText(52, lead.orderMonth)),
-                              DataCell(
-                                  _pipelineTableText(52, lead.arrivalMonth)),
                               DataCell(
                                 SizedBox(
                                   key: ValueKey(
@@ -690,30 +933,20 @@ class _PipelineRegistrationViewState extends State<PipelineRegistrationView> {
                                   ),
                                 ),
                               ),
-                              DataCell(_pipelineTableText(68, lead.owner)),
-                              DataCell(
-                                  _pipelineTableText(38, lead.productType)),
-                              DataCell(
-                                  _pipelineTableText(38, lead.destination)),
-                              DataCell(_pipelineTableText(70, lead.dealer)),
-                              DataCell(_pipelineTableText(75, lead.endUser)),
-                              DataCell(_pipelineTableText(105, lead.project)),
-                              DataCell(
-                                  _pipelineTableText(28, '${lead.quantity}')),
+                              DataCell(_pipelineTableText(68, lead.customer)),
+                              DataCell(_pipelineTableText(76, lead.dealer)),
+                              DataCell(_pipelineTableText(130, lead.project)),
+                              DataCell(_probabilityDot(true)),
+                              DataCell(_probabilityDot(true)),
+                              DataCell(_probabilityDot(lead.quantity > 10)),
+                              DataCell(_probabilityDot(false)),
+                              DataCell(_probabilityDot(false)),
                               DataCell(_pipelineTableText(
-                                  60, _money(lead.amount / lead.quantity))),
-                              DataCell(
-                                  _pipelineTableText(65, _money(lead.amount))),
+                                  70, '${_money(lead.amount)}만원')),
+                              DataCell(_pipelineTableText(58, lead.orderMonth)),
                               DataCell(SizedBox(
-                                  width: 55,
-                                  child: _ratioBadge(lead.materialRatio))),
-                              DataCell(_pipelineTableText(
-                                  55,
-                                  lead.materialRatio > 80
-                                      ? 'WORST'
-                                      : lead.materialRatio >= 75
-                                          ? 'B-'
-                                          : 'BEST')),
+                                  width: 62,
+                                  child: _stageBadgeCompact(lead.stage))),
                               DataCell(
                                 IconButton(
                                   key: ValueKey(
@@ -736,22 +969,104 @@ class _PipelineRegistrationViewState extends State<PipelineRegistrationView> {
               ),
             ),
           ),
+          const Divider(height: 1),
+          _buildAssessPainPointPanel(),
         ],
+      );
+
+  Widget _buildAssessPainPointPanel() => Padding(
+        padding: const EdgeInsets.fromLTRB(12, 8, 12, 10),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('개별 등록 / Pain Point 수집', style: RobinTheme.headingSm),
+            const SizedBox(height: 7),
+            Row(
+              children: [
+                const Expanded(
+                  child: TextField(
+                    decoration: InputDecoration(
+                      labelText: '고객사명',
+                      hintText: 'ERP 고객사 검색',
+                      border: OutlineInputBorder(),
+                      isDense: true,
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 7),
+                const Expanded(
+                  child: TextField(
+                    decoration: InputDecoration(
+                      labelText: '대리점 / 담당자',
+                      border: OutlineInputBorder(),
+                      isDense: true,
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 7),
+                const Expanded(
+                  flex: 2,
+                  child: TextField(
+                    decoration: InputDecoration(
+                      labelText: 'Pain Point 요약',
+                      hintText: '현장 Pain Point 및 요구사항',
+                      border: OutlineInputBorder(),
+                      isDense: true,
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 7),
+                OutlinedButton(
+                  onPressed: () => _message('Pain Point를 임시 저장했습니다.'),
+                  child: const Text('임시 저장'),
+                ),
+                const SizedBox(width: 7),
+                FilledButton(
+                  onPressed: _registerPipeline,
+                  child: const Text('가번호 발행 후 저장'),
+                ),
+              ],
+            ),
+          ],
+        ),
       );
 
   Widget _buildProposalWorkspace() {
     final rows = _filteredForStage;
+    final lead = rows.contains(_selected)
+        ? _selected
+        : (rows.isEmpty ? null : rows.first);
+    if (lead == null) {
+      return const Center(child: Text('Proposal 단계의 수주가 없습니다.'));
+    }
+    final collaboration = _proposalCollaborationFor(lead);
     return ListView(
+      shrinkWrap: true,
+      physics: const NeverScrollableScrollPhysics(),
       padding: const EdgeInsets.all(12),
       children: [
         Row(
           children: [
             Expanded(
-              child: Text(
-                'Proposal 버튼을 선택하면 고객요구사항·설계담당자·도면·협의이력이 나래비로 펼쳐집니다.',
-                style: RobinTheme.bodySm,
+              child: DropdownButtonFormField<_PipelineLead>(
+                key: const ValueKey('proposal-order-selector'),
+                initialValue: lead,
+                isExpanded: true,
+                decoration: const InputDecoration(
+                  labelText: 'Proposal 수주 선택',
+                  border: OutlineInputBorder(),
+                  isDense: true,
+                ),
+                items: rows
+                    .map((item) => DropdownMenuItem(
+                          value: item,
+                          child: Text('${item.number} · ${item.project}'),
+                        ))
+                    .toList(),
+                onChanged: (value) => setState(() => _selected = value),
               ),
             ),
+            const SizedBox(width: 8),
             OutlinedButton.icon(
               onPressed: () => _message('SmartOrder 고객 기초정보를 불러왔습니다.'),
               icon: const Icon(Icons.sync, size: 17),
@@ -759,82 +1074,339 @@ class _PipelineRegistrationViewState extends State<PipelineRegistrationView> {
             ),
           ],
         ),
-        const SizedBox(height: 8),
-        for (final lead in rows)
-          Card(
-            margin: const EdgeInsets.only(bottom: 8),
-            child: ExpansionTile(
-              key: ValueKey('proposal-${lead.number}'),
-              initiallyExpanded: _selected?.number == lead.number,
-              onExpansionChanged: (expanded) {
-                if (expanded) setState(() => _selected = lead);
-              },
-              leading: CircleAvatar(
-                backgroundColor: _stageColors[1].withValues(alpha: .1),
-                child: const Icon(Icons.architecture_outlined,
-                    color: Color(0xFF2563EB), size: 19),
-              ),
-              title: Text('${lead.number}  ${lead.project}',
-                  style: RobinTheme.headingSm),
-              subtitle: Text(
-                  '${lead.customer} · ${lead.owner} · 첨부 ${_proposalCollaborationFor(lead).documents.length}건 · 댓글 ${_proposalCollaborationFor(lead).comments.length}건'),
-              trailing: const Chip(label: Text('Proposal')),
+        const SizedBox(height: 10),
+        LayoutBuilder(
+          builder: (context, constraints) {
+            final editor = _buildProposalEditor(lead, collaboration);
+            final channel = _buildProposalChannel(lead, collaboration);
+            if (constraints.maxWidth < 1050) {
+              return Column(
+                children: [editor, const SizedBox(height: 10), channel],
+              );
+            }
+            return Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const Divider(height: 1),
-                Padding(
-                  padding: const EdgeInsets.all(14),
+                Expanded(child: editor),
+                const SizedBox(width: 12),
+                SizedBox(width: 380, child: channel),
+              ],
+            );
+          },
+        ),
+        const SizedBox(height: 10),
+        Row(
+          mainAxisAlignment: MainAxisAlignment.end,
+          children: [
+            OutlinedButton(
+              onPressed: () => setState(() => _activeStage = 0),
+              child: const Text('← 이전'),
+            ),
+            const SizedBox(width: 7),
+            OutlinedButton(
+              onPressed: () => _message('Proposal 입력 내용을 임시 저장했습니다.'),
+              child: const Text('임시 저장'),
+            ),
+            const SizedBox(width: 7),
+            FilledButton.icon(
+              onPressed: () => _changeStage(lead, 2),
+              icon: const Icon(Icons.arrow_forward, size: 17),
+              label: const Text('도면 확정 · Negotiation으로'),
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+
+  Widget _buildProposalEditor(
+      _PipelineLead lead, _ProposalCollaborationData collaboration) {
+    return Column(
+      children: [
+        Container(
+          padding: const EdgeInsets.all(13),
+          decoration: _softPanel(),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text('Proposal · 컨셉도면 대응 · 제안서 전달', style: RobinTheme.headingSm),
+              const SizedBox(height: 10),
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: [
+                  _proposalField('고객사명', lead.customer),
+                  _proposalField('프로젝트명', lead.project),
+                  _proposalField('제품 구분', lead.productType),
+                  _proposalField('예상 금액(만원)', _money(lead.amount)),
+                  _proposalField('희망 납기일', lead.arrivalMonth),
+                  _proposalField('설치 장소', lead.destination),
+                ],
+              ),
+              const SizedBox(height: 10),
+              const TextField(
+                maxLines: 2,
+                decoration: InputDecoration(
+                  labelText: '제안 내용 요약',
+                  hintText: '솔루션 제안 요점과 고객 요구사항을 입력하세요.',
+                  border: OutlineInputBorder(),
+                  isDense: true,
+                ),
+              ),
+              const SizedBox(height: 12),
+              Container(
+                padding: const EdgeInsets.all(11),
+                decoration: BoxDecoration(
+                  color: RobinTheme.signalGreen.withValues(alpha: .045),
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(
+                      color: RobinTheme.signalGreen.withValues(alpha: .38)),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Expanded(
+                          child: Text('컨셉도면 사양 입력',
+                              style: RobinTheme.headingSm
+                                  .copyWith(color: RobinTheme.signalGreen)),
+                        ),
+                        const Chip(label: Text('Proposal 필수')),
+                      ],
+                    ),
+                    const SizedBox(height: 7),
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
+                      children: [
+                        _proposalField('모델명', 'GRP-VAC-40', compact: true),
+                        _proposalField('축 수', '6축', compact: true),
+                        _proposalField('가반하중', '120 kg', compact: true),
+                        _proposalField('최대 Reach', '2,650 mm', compact: true),
+                        _proposalField('설치 방식', '바닥 설치', compact: true),
+                        _proposalField('반복정밀도', '±0.05 mm', compact: true),
+                        _proposalField('그리퍼 타입', '진공 그리퍼', compact: true),
+                        _proposalField('제품 중량', '38 kg', compact: true),
+                        _proposalField('제품 크기', '850×620×420', compact: true),
+                        _proposalField('케이블 방향', '우측', compact: true),
+                        _proposalField('안전 옵션', '라이트커튼', compact: true),
+                        _proposalField('컨트롤러/통신', 'RCX-500', compact: true),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 10),
+        Container(
+          padding: const EdgeInsets.all(12),
+          decoration: _softPanel(),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Expanded(
+                    child:
+                        Text('컨셉도면 업로드 · 버전 이력', style: RobinTheme.headingSm),
+                  ),
+                  OutlinedButton.icon(
+                    key: ValueKey('proposal-collaboration-${lead.number}'),
+                    onPressed: () => _showProposalCollaboration(lead),
+                    icon: const Icon(Icons.upload_file_outlined, size: 17),
+                    label: const Text('도면·파일 관리'),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 8),
+              for (var index = collaboration.documents.length - 1;
+                  index >= 0;
+                  index--)
+                _proposalDocumentRow(
+                  collaboration.documents[index],
+                  latest: index == collaboration.documents.length - 1,
+                ),
+              const SizedBox(height: 6),
+              Text('최신 확정 사양은 Negotiation 단계로 자동 승계됩니다.',
+                  style: RobinTheme.labelXs),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _proposalField(String label, String value, {bool compact = false}) =>
+      SizedBox(
+        width: compact ? 150 : 210,
+        child: TextFormField(
+          initialValue: value,
+          decoration: InputDecoration(
+            labelText: label,
+            border: const OutlineInputBorder(),
+            isDense: true,
+          ),
+        ),
+      );
+
+  Widget _proposalDocumentRow(_ProposalDocument document,
+          {required bool latest}) =>
+      Container(
+        margin: const EdgeInsets.only(bottom: 6),
+        padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 7),
+        decoration: BoxDecoration(
+          color: latest
+              ? RobinTheme.signalGreen.withValues(alpha: .055)
+              : RobinTheme.surface,
+          borderRadius: BorderRadius.circular(7),
+          border: Border.all(
+              color: latest
+                  ? RobinTheme.signalGreen.withValues(alpha: .5)
+                  : RobinTheme.border),
+        ),
+        child: Row(
+          children: [
+            Icon(Icons.description_outlined,
+                size: 18,
+                color: latest ? RobinTheme.signalGreen : RobinTheme.textMuted),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text('${document.fileName} · ${document.revision}',
+                      style: RobinTheme.bodySm
+                          .copyWith(fontWeight: FontWeight.w700)),
+                  Text('${document.at} · ${document.uploader}',
+                      style: RobinTheme.labelXs),
+                ],
+              ),
+            ),
+            if (latest) const Chip(label: Text('최신')),
+          ],
+        ),
+      );
+
+  Widget _buildProposalChannel(
+      _PipelineLead lead, _ProposalCollaborationData collaboration) {
+    return Container(
+      height: 590,
+      decoration: _softPanel(),
+      clipBehavior: Clip.antiAlias,
+      child: Column(
+        children: [
+          Padding(
+            padding: const EdgeInsets.all(12),
+            child: Row(
+              children: [
+                Expanded(
                   child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      const Wrap(
-                        spacing: 10,
-                        runSpacing: 10,
-                        children: [
-                          _InfoBox('예상 물동', '3,500 ea/월'),
-                          _InfoBox('작업/운영시간', '16 / 20 hr/일'),
-                          _InfoBox('제품 크기', '1,200 × 800 × 900 mm'),
-                          _InfoBox('이송 Capa', '350.0 kg/회'),
-                          _InfoBox('예상 투자금액', '15.0억원'),
-                          _InfoBox('설계담당자', '이설계 책임'),
-                        ],
-                      ),
-                      const SizedBox(height: 12),
-                      const _DocumentRow(Icons.table_view_outlined,
-                          '고객 Spec. Sheet', '물동관리_현대자동차_AGV.xlsx', '접수 완료'),
-                      const _DocumentRow(Icons.picture_as_pdf_outlined, '컨셉 도면',
-                          'Layout_AGV_Concept_Rev03.pdf', 'PDM Rev.03'),
-                      const _DocumentRow(Icons.forum_outlined, '협의 댓글',
-                          '대리점 2건 · 설계팀 3건', '최종 합의'),
-                      const SizedBox(height: 10),
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.end,
-                        children: [
-                          OutlinedButton(
-                              onPressed: () => _message('설계담당자 지정창을 열었습니다.'),
-                              child: const Text('설계담당자 지정')),
-                          const SizedBox(width: 7),
-                          OutlinedButton.icon(
-                            key: ValueKey(
-                                'proposal-collaboration-${lead.number}'),
-                            onPressed: () => _showProposalCollaboration(lead),
-                            icon: const Icon(Icons.forum_outlined, size: 17),
-                            label: const Text('도면·댓글 협업'),
-                          ),
-                          const SizedBox(width: 7),
-                          FilledButton.icon(
-                            onPressed: () => _changeStage(lead, 2),
-                            icon: const Icon(Icons.arrow_forward, size: 17),
-                            label: const Text('Negotiation으로'),
-                          ),
-                        ],
-                      ),
+                      Text('도면 협의 채널', style: RobinTheme.headingSm),
+                      Text('대리점 ↔ 설계팀 도면 검토 의견', style: RobinTheme.labelXs),
                     ],
                   ),
+                ),
+                Chip(label: Text('${collaboration.comments.length}건')),
+              ],
+            ),
+          ),
+          const Divider(height: 1),
+          Expanded(
+            child: ListView(
+              padding: const EdgeInsets.all(10),
+              children: [
+                for (final comment in collaboration.comments)
+                  Align(
+                    alignment: comment.team == '설계팀'
+                        ? Alignment.centerRight
+                        : Alignment.centerLeft,
+                    child: Container(
+                      constraints: const BoxConstraints(maxWidth: 300),
+                      margin: EdgeInsets.only(
+                        bottom: 8,
+                        left: comment.parentId == null ? 0 : 24,
+                      ),
+                      padding: const EdgeInsets.all(9),
+                      decoration: BoxDecoration(
+                        color: comment.team == '설계팀'
+                            ? RobinTheme.primary.withValues(alpha: .07)
+                            : RobinTheme.signalGreen.withValues(alpha: .07),
+                        borderRadius: BorderRadius.circular(9),
+                        border: Border.all(color: RobinTheme.border),
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text('${comment.author} · ${comment.team}',
+                              style: RobinTheme.labelXs
+                                  .copyWith(fontWeight: FontWeight.w700)),
+                          const SizedBox(height: 3),
+                          Text(comment.message, style: RobinTheme.bodySm),
+                          const SizedBox(height: 3),
+                          Text(comment.at, style: RobinTheme.labelXs),
+                        ],
+                      ),
+                    ),
+                  ),
+              ],
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(9, 8, 9, 9),
+            child: Row(
+              children: [
+                Expanded(
+                  child: TextField(
+                    key: const ValueKey('proposal-inline-message'),
+                    controller: _proposalMessageController,
+                    onSubmitted: (_) => _sendProposalMessage(lead),
+                    decoration: const InputDecoration(
+                      hintText: '도면 검토 의견 입력',
+                      border: OutlineInputBorder(),
+                      isDense: true,
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 6),
+                FilledButton(
+                  onPressed: () => _sendProposalMessage(lead),
+                  child: const Text('전송'),
                 ),
               ],
             ),
           ),
-      ],
+        ],
+      ),
     );
+  }
+
+  void _sendProposalMessage(_PipelineLead lead) {
+    final message = _proposalMessageController.text.trim();
+    if (message.isEmpty) return;
+    final current = _proposalCollaborationFor(lead);
+    setState(() {
+      _proposalCollaborations[lead.number] = _ProposalCollaborationData(
+        documents: current.documents,
+        comments: [
+          ...current.comments,
+          _ProposalComment(
+            'inline-${DateTime.now().microsecondsSinceEpoch}',
+            null,
+            robinUserProfile.value.name,
+            '설계팀',
+            message,
+            _now(),
+          ),
+        ],
+        specCopied: current.specCopied,
+      );
+      _proposalMessageController.clear();
+    });
   }
 
   Widget _buildNegotiationWorkspace() {
@@ -845,6 +1417,7 @@ class _PipelineRegistrationViewState extends State<PipelineRegistrationView> {
     final calc = _calculateCost();
     final dealerView = robinUserProfile.value.isDealer;
     return SingleChildScrollView(
+      physics: const NeverScrollableScrollPhysics(),
       padding: const EdgeInsets.all(14),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -885,16 +1458,74 @@ class _PipelineRegistrationViewState extends State<PipelineRegistrationView> {
             ],
           ),
           const SizedBox(height: 12),
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Expanded(flex: 3, child: _buildCostInputs(dealerView)),
-              const SizedBox(width: 12),
-              Expanded(flex: 2, child: _buildCostResult(calc, dealerView)),
-            ],
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 8),
+            decoration: BoxDecoration(
+              color: RobinTheme.warningLight,
+              borderRadius: BorderRadius.circular(8),
+              border:
+                  Border.all(color: RobinTheme.warning.withValues(alpha: .35)),
+            ),
+            child: Text(
+              selectedLead == null
+                  ? '신규 등록 불가 · Assess 또는 Proposal에서 생성된 기존 수주를 선택하세요.'
+                  : 'Proposal 도면 스펙 자동 연동 · 가수주번호 ${selectedLead.number}',
+              style: RobinTheme.labelXs.copyWith(color: RobinTheme.warning),
+            ),
           ),
           const SizedBox(height: 12),
-          _buildApprovalArea(calc, dealerView),
+          LayoutBuilder(
+            builder: (context, constraints) {
+              final costArea = Column(
+                children: [
+                  _buildCostInputs(dealerView),
+                  const SizedBox(height: 10),
+                  _buildCostResult(calc, dealerView),
+                ],
+              );
+              final approvalArea = _buildApprovalArea(calc, dealerView);
+              if (constraints.maxWidth < 1050) {
+                return Column(
+                  children: [
+                    costArea,
+                    const SizedBox(height: 10),
+                    approvalArea,
+                  ],
+                );
+              }
+              return Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Expanded(child: costArea),
+                  const SizedBox(width: 12),
+                  SizedBox(width: 350, child: approvalArea),
+                ],
+              );
+            },
+          ),
+          const SizedBox(height: 10),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.end,
+            children: [
+              OutlinedButton(
+                onPressed: () => setState(() => _activeStage = 1),
+                child: const Text('← 이전'),
+              ),
+              const SizedBox(width: 7),
+              OutlinedButton(
+                onPressed: () => _message('Negotiation 입력 내용을 임시 저장했습니다.'),
+                child: const Text('임시 저장'),
+              ),
+              const SizedBox(width: 7),
+              FilledButton(
+                onPressed: selectedLead == null
+                    ? null
+                    : () => _changeStage(selectedLead, 3),
+                child: const Text('Closed Won으로'),
+              ),
+            ],
+          ),
         ],
       ),
     );
@@ -1235,81 +1866,100 @@ class _PipelineRegistrationViewState extends State<PipelineRegistrationView> {
                 .withValues(alpha: .35)),
       ),
       child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Align(
-            alignment: Alignment.centerLeft,
-            child: dealerView
-                ? const Text('결재선은 사내 재료비 검증 결과에 따라 자동 지정됩니다.')
-                : const Wrap(
-                    spacing: 7,
-                    runSpacing: 7,
-                    crossAxisAlignment: WrapCrossAlignment.center,
-                    children: [
-                      Text('재료비율 결재선 · 임시 기준',
-                          style: TextStyle(fontWeight: FontWeight.w700)),
-                      Chip(label: Text('75% 미만 · 팀장 참조')),
-                      Chip(label: Text('75~80% · 영업팀장 승인')),
-                      Chip(label: Text('80% 초과 · 영업팀장→사업부장')),
-                    ],
-                  ),
-          ),
-          const SizedBox(height: 10),
-          Wrap(
-            spacing: 8,
-            runSpacing: 8,
-            crossAxisAlignment: WrapCrossAlignment.center,
+          Row(
             children: [
               Icon(Icons.approval_outlined, color: calc.color),
-              Text('ROBIN 결재시스템', style: RobinTheme.headingSm),
-              _evidenceBadge(_evidenceAttached),
-              OutlinedButton.icon(
-                onPressed: () => setState(() => _evidenceAttached = true),
-                icon: const Icon(Icons.attach_file, size: 17),
-                label: Text(dealerView ? '인보이스 발행 요청' : '발주서/증빙 첨부'),
+              const SizedBox(width: 7),
+              Expanded(
+                child: Text('ROBIN 결재시스템', style: RobinTheme.headingSm),
               ),
+              const SizedBox(width: 6),
+              _evidenceBadge(_evidenceAttached),
             ],
           ),
-          const SizedBox(height: 12),
-          SingleChildScrollView(
-            scrollDirection: Axis.horizontal,
-            child: Row(
+          const SizedBox(height: 8),
+          Text(
+            dealerView ? '결재선은 사내 재료비 검증 결과에 따라 자동 지정됩니다.' : '재료비율 결재선 · 임시 기준',
+            style: RobinTheme.labelXs.copyWith(fontWeight: FontWeight.w700),
+          ),
+          if (!dealerView) ...[
+            const SizedBox(height: 6),
+            const Wrap(
+              spacing: 5,
+              runSpacing: 5,
               children: [
-                _approvalStep(
-                    '기안자', dealerView ? '대리점/영업담당자' : '직판영업담당자', true),
-                const _ApprovalArrow(),
-                _approvalStep('영업팀장', isWarning ? '승인 필요' : '참조', !isWarning),
-                if (needsDivisionApproval) ...[
-                  const _ApprovalArrow(),
-                  _approvalStep(
-                      '사업부장', dealerView ? '추가 승인' : '80% 초과 자동생성', false),
-                ],
-                const SizedBox(width: 16),
-                FilledButton.icon(
-                  onPressed: () {
-                    if (_selected != null) {
-                      _histories.insert(
-                        0,
-                        _PipelineHistory(
-                          number: _selected!.number,
-                          at: _now(),
-                          user: robinUserProfile.value.name,
-                          from: 'Negotiation',
-                          to: '결재 상신',
-                          note: dealerView
-                              ? '대리점 판가 사내 검증 · ${_evidenceAttached ? '인보이스 요청' : '인보이스 미요청'}'
-                              : '재료비율 ${calc.ratio.toStringAsFixed(1)}% · ${_evidenceAttached ? '증빙 첨부' : '증빙 미첨부'}',
-                        ),
-                      );
-                    }
-                    setState(() {});
-                    _message(needsDivisionApproval
-                        ? '영업팀장 → 사업부장 결재를 상신했습니다.'
-                        : '영업팀장 결재를 상신했습니다.');
-                  },
-                  icon: const Icon(Icons.send_outlined, size: 17),
-                  label: const Text('결재 상신'),
-                ),
+                Chip(label: Text('75% 미만 · 참조')),
+                Chip(label: Text('75~80% · 팀장')),
+                Chip(label: Text('80% 초과 · 사업부장')),
               ],
+            ),
+          ],
+          const SizedBox(height: 10),
+          _approvalStageCard('1단계 · 기안자',
+              dealerView ? '대리점/영업담당자' : robinUserProfile.value.name,
+              status: '자동 설정', completed: true),
+          const SizedBox(height: 7),
+          _approvalStageCard('2단계 · 영업팀장', isWarning ? '승인 필요' : '참조',
+              status: isWarning ? '승인 대기' : '자동 통과', completed: !isWarning),
+          if (needsDivisionApproval) ...[
+            const SizedBox(height: 7),
+            _approvalStageCard(
+                '3단계 · 사업부장', dealerView ? '추가 승인' : '80% 초과 자동 지정',
+                status: '예정', completed: false),
+          ],
+          const SizedBox(height: 12),
+          Text('증빙 상태', style: RobinTheme.headingSm),
+          const SizedBox(height: 6),
+          SizedBox(
+            width: double.infinity,
+            child: OutlinedButton.icon(
+              onPressed: () => setState(() => _evidenceAttached = true),
+              icon: const Icon(Icons.attach_file, size: 17),
+              label: Text(dealerView ? '인보이스 발행 요청' : '발주서/증빙 첨부'),
+            ),
+          ),
+          const SizedBox(height: 8),
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.all(8),
+            decoration: BoxDecoration(
+              color: RobinTheme.primary.withValues(alpha: .055),
+              borderRadius: BorderRadius.circular(7),
+            ),
+            child: const Text(
+              '결재 완료 시 Closed Won으로 전환하고 ERP 수주번호를 연계합니다. 반려 시 Negotiation을 유지합니다.',
+              style: TextStyle(fontSize: 11),
+            ),
+          ),
+          const SizedBox(height: 10),
+          SizedBox(
+            width: double.infinity,
+            child: FilledButton.icon(
+              onPressed: () {
+                if (_selected != null) {
+                  _histories.insert(
+                    0,
+                    _PipelineHistory(
+                      number: _selected!.number,
+                      at: _now(),
+                      user: robinUserProfile.value.name,
+                      from: 'Negotiation',
+                      to: '결재 상신',
+                      note: dealerView
+                          ? '대리점 판가 사내 검증 · ${_evidenceAttached ? '인보이스 요청' : '인보이스 미요청'}'
+                          : '재료비율 ${calc.ratio.toStringAsFixed(1)}% · ${_evidenceAttached ? '증빙 첨부' : '증빙 미첨부'}',
+                    ),
+                  );
+                }
+                setState(() {});
+                _message(needsDivisionApproval
+                    ? '영업팀장 → 사업부장 결재를 상신했습니다.'
+                    : '영업팀장 결재를 상신했습니다.');
+              },
+              icon: const Icon(Icons.send_outlined, size: 17),
+              label: const Text('결재 요청 전송'),
             ),
           ),
           if ((_selected?.dealer ?? '').contains('대리점')) ...[
@@ -1325,33 +1975,287 @@ class _PipelineRegistrationViewState extends State<PipelineRegistrationView> {
     );
   }
 
-  Widget _buildTerminalWorkspace() {
-    final rows = _filteredForStage;
-    return ListView.separated(
-      padding: const EdgeInsets.all(12),
-      itemCount: rows.length,
-      separatorBuilder: (_, __) => const SizedBox(height: 8),
-      itemBuilder: (context, index) {
-        final lead = rows[index];
-        return ListTile(
-          selected: _selected?.number == lead.number,
-          selectedTileColor: _stageColors[_activeStage].withValues(alpha: .06),
-          shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(8),
-              side: const BorderSide(color: RobinTheme.border)),
-          onTap: () => setState(() => _selected = lead),
-          leading: Icon(Icons.flag_circle_outlined,
-              color: _stageColors[_activeStage]),
-          title: Text('${lead.number}  ${lead.project}'),
-          subtitle: Text(
-              '${lead.customer} · ${_money(lead.amount)}만원${lead.dropReason == null ? '' : ' · ${lead.dropReason}'}'),
-          trailing: OutlinedButton(
-            onPressed: () => _showStageChangeDialog(lead),
-            child: const Text('단계 변경'),
+  Widget _approvalStageCard(String title, String assignee,
+          {required String status, required bool completed}) =>
+      Container(
+        width: double.infinity,
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+        decoration: BoxDecoration(
+          color: (completed ? RobinTheme.signalGreen : RobinTheme.warning)
+              .withValues(alpha: .06),
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(
+            color: (completed ? RobinTheme.signalGreen : RobinTheme.warning)
+                .withValues(alpha: .35),
           ),
-        );
-      },
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(title, style: RobinTheme.labelXs),
+            const SizedBox(height: 3),
+            Text(assignee, style: RobinTheme.headingSm),
+            const SizedBox(height: 2),
+            Text(status,
+                style: RobinTheme.labelXs.copyWith(
+                    color: completed
+                        ? RobinTheme.signalGreen
+                        : RobinTheme.warning)),
+          ],
+        ),
+      );
+
+  Widget _buildClosedWonWorkspace() {
+    final rows = _filteredForStage;
+    final lead = rows.contains(_selected)
+        ? _selected
+        : (rows.isEmpty ? null : rows.first);
+    if (lead == null) {
+      return const Center(child: Text('Closed Won 수주가 없습니다.'));
+    }
+    return ListView(
+      shrinkWrap: true,
+      physics: const NeverScrollableScrollPhysics(),
+      padding: const EdgeInsets.all(12),
+      children: [
+        _terminalOrderSelector(rows, lead, 'Closed Won 수주 선택'),
+        const SizedBox(height: 12),
+        Container(
+          padding: const EdgeInsets.all(18),
+          decoration: BoxDecoration(
+            color: RobinTheme.signalGreen.withValues(alpha: .06),
+            borderRadius: BorderRadius.circular(9),
+            border: Border.all(
+                color: RobinTheme.signalGreen.withValues(alpha: .55)),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text('✓ Closed Won · 수주 확정',
+                  style: RobinTheme.headingLg
+                      .copyWith(color: RobinTheme.signalGreen)),
+              const SizedBox(height: 5),
+              Text('최종 계약과 결재가 완료된 수주를 ERP와 프로젝트 관리로 연결합니다.',
+                  style: RobinTheme.bodySm),
+              const SizedBox(height: 14),
+              Row(
+                children: [
+                  Expanded(
+                    child: InputDecorator(
+                      decoration: const InputDecoration(
+                        labelText: 'ROBIN 가수주번호',
+                        border: OutlineInputBorder(),
+                        isDense: true,
+                      ),
+                      child: Text(lead.number),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: InputDecorator(
+                      decoration: const InputDecoration(
+                        labelText: 'ERP 공식 수주번호',
+                        border: OutlineInputBorder(),
+                        isDense: true,
+                      ),
+                      child: Text(lead.erpOrderNumber ?? 'ERP 연계 대기'),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: InputDecorator(
+                      decoration: const InputDecoration(
+                        labelText: '확정 수주금액',
+                        border: OutlineInputBorder(),
+                        isDense: true,
+                      ),
+                      child: Text('${_money(lead.amount)}만원'),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 10),
+              OutlinedButton.icon(
+                onPressed: () => _message('계약서 첨부 영역을 열었습니다.'),
+                icon: const Icon(Icons.attach_file, size: 17),
+                label: const Text('계약서 첨부'),
+              ),
+              const SizedBox(height: 14),
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(7),
+                  border: Border.all(
+                      color: RobinTheme.signalGreen.withValues(alpha: .4)),
+                ),
+                child: const Text('ERP 연동 완료 시 프로젝트 관리 화면에 설계 단계부터 자동 등록됩니다.'),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 10),
+        Row(
+          mainAxisAlignment: MainAxisAlignment.end,
+          children: [
+            OutlinedButton(
+              onPressed: () => _showStageChangeDialog(lead),
+              child: const Text('단계 변경'),
+            ),
+            const SizedBox(width: 7),
+            FilledButton.icon(
+              onPressed: () {
+                _message('수주 확정 처리가 완료되었습니다. 프로젝트 관리에 반영했습니다.');
+                widget.onNavigate?.call(3);
+              },
+              icon: const Icon(Icons.check_circle_outline, size: 17),
+              label: const Text('수주 확정 완료'),
+            ),
+          ],
+        ),
+      ],
     );
+  }
+
+  Widget _buildClosedLostWorkspace() {
+    final rows = _filteredForStage;
+    final lead = rows.contains(_selected)
+        ? _selected
+        : (rows.isEmpty ? null : rows.first);
+    if (lead == null) {
+      return const Center(child: Text('Closed Lost 수주가 없습니다.'));
+    }
+    return ListView(
+      shrinkWrap: true,
+      physics: const NeverScrollableScrollPhysics(),
+      padding: const EdgeInsets.all(12),
+      children: [
+        _terminalOrderSelector(rows, lead, 'Closed Lost 수주 선택'),
+        const SizedBox(height: 12),
+        Container(
+          padding: const EdgeInsets.all(18),
+          decoration: BoxDecoration(
+            color: RobinTheme.signalRed.withValues(alpha: .055),
+            borderRadius: BorderRadius.circular(9),
+            border:
+                Border.all(color: RobinTheme.signalRed.withValues(alpha: .55)),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text('✕ Closed Lost · 수주 실패',
+                  style: RobinTheme.headingLg
+                      .copyWith(color: RobinTheme.signalRed)),
+              const SizedBox(height: 5),
+              Text('${lead.number} · ${lead.customer} · ${lead.project}',
+                  style: RobinTheme.bodySm),
+              const SizedBox(height: 14),
+              DropdownButtonFormField<String>(
+                initialValue: _lostReason,
+                decoration: const InputDecoration(
+                  labelText: '실패 사유 · 필수',
+                  border: OutlineInputBorder(),
+                  isDense: true,
+                ),
+                items: const [
+                  '경쟁사 선점',
+                  '예산 취소',
+                  '고객 변심',
+                  '가격 협의 실패',
+                  '사양 불일치',
+                  '기타',
+                ]
+                    .map((item) =>
+                        DropdownMenuItem(value: item, child: Text(item)))
+                    .toList(),
+                onChanged: (value) =>
+                    setState(() => _lostReason = value ?? _lostReason),
+              ),
+              const SizedBox(height: 10),
+              TextField(
+                controller: _lostDetailController,
+                maxLines: 3,
+                decoration: InputDecoration(
+                  labelText: '상세 사유',
+                  hintText:
+                      lead.dropReason ?? '구체적인 실패 경위와 경쟁사·경쟁제품 정보를 입력하세요.',
+                  border: const OutlineInputBorder(),
+                  isDense: true,
+                ),
+              ),
+              const SizedBox(height: 10),
+              const Text(
+                'Closed Lost는 유지되며 별도의 “수주 중단” 단계는 사용하지 않습니다. 어느 단계에서든 Drop 처리한 결과가 이 화면에 누적됩니다.',
+                style: TextStyle(fontSize: 11, color: RobinTheme.textSecondary),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 10),
+        Row(
+          mainAxisAlignment: MainAxisAlignment.end,
+          children: [
+            OutlinedButton(
+              onPressed: () => _showStageChangeDialog(lead),
+              child: const Text('단계 변경'),
+            ),
+            const SizedBox(width: 7),
+            FilledButton.icon(
+              onPressed: () => _saveClosedLost(lead),
+              style:
+                  FilledButton.styleFrom(backgroundColor: RobinTheme.signalRed),
+              icon: const Icon(Icons.cancel_outlined, size: 17),
+              label: const Text('실패 사유 저장'),
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+
+  Widget _terminalOrderSelector(
+          List<_PipelineLead> rows, _PipelineLead selected, String label) =>
+      DropdownButtonFormField<_PipelineLead>(
+        initialValue: selected,
+        isExpanded: true,
+        decoration: InputDecoration(
+          labelText: label,
+          border: const OutlineInputBorder(),
+          isDense: true,
+        ),
+        items: rows
+            .map((item) => DropdownMenuItem(
+                  value: item,
+                  child: Text('${item.number} · ${item.project}'),
+                ))
+            .toList(),
+        onChanged: (value) => setState(() => _selected = value),
+      );
+
+  void _saveClosedLost(_PipelineLead lead) {
+    final detail = _lostDetailController.text.trim();
+    final reason = detail.isEmpty ? _lostReason : '$_lostReason · $detail';
+    final index = _leads.indexWhere((item) => item.number == lead.number);
+    if (index < 0) return;
+    final updated = lead.copyWith(dropReason: reason);
+    setState(() {
+      _leads[index] = updated;
+      _selected = updated;
+      _histories.insert(
+        0,
+        _PipelineHistory(
+          number: lead.number,
+          at: _now(),
+          user: robinUserProfile.value.name,
+          from: 'Closed Lost',
+          to: '실패 사유 저장',
+          note: reason,
+        ),
+      );
+      _lostDetailController.clear();
+    });
+    _message('${lead.number} 실패 사유를 저장했습니다.');
   }
 
   Widget _buildHistoryPanel() {
@@ -1494,43 +2398,42 @@ class _PipelineRegistrationViewState extends State<PipelineRegistrationView> {
     );
   }
 
-  Future<void> _showHistoryPanelDialog() async {
-    await showDialog<void>(
-      context: context,
-      builder: (dialogContext) => AlertDialog(
-        contentPadding: const EdgeInsets.all(12),
-        content: SizedBox(
-          width: 380,
-          height: MediaQuery.sizeOf(dialogContext).height * .72,
-          child: _buildHistoryPanel(),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(dialogContext),
-            child: const Text('닫기'),
-          ),
-        ],
-      ),
-    );
-  }
-
   List<_PipelineLead> get _filteredForStage {
-    final query = _searchController.text.trim().toLowerCase();
+    final query = _searchController.text;
     return _leads.where((lead) {
       if (lead.stage != _activeStage) return false;
-      if (query.isNotEmpty &&
-          !'${lead.customer} ${lead.dealer} ${lead.project} ${lead.number}'
-              .toLowerCase()
-              .contains(query)) {
+      if (_customerFilter != '고객사' && lead.customer != _customerFilter) {
         return false;
       }
-      if (_channelFilter == '직판' && !lead.dealer.contains('본사')) return false;
-      if (_channelFilter == '대리점' && lead.dealer.contains('본사')) return false;
-      final ratio = lead.materialRatio;
-      if (_ratioFilter == '75% 미만' && ratio >= 75) return false;
-      if (_ratioFilter == '75~80%' && (ratio < 75 || ratio > 80)) return false;
-      if (_ratioFilter == '80% 초과' && ratio <= 80) return false;
-      return true;
+      return matchesSearchQuery([
+        lead.number,
+        lead.project,
+        lead.customer,
+        lead.dealer,
+        lead.owner,
+        '${lead.materialRatio.toStringAsFixed(1)}%',
+      ], query);
+    }).toList();
+  }
+
+  List<_PipelineLead> get _filteredLeads {
+    final query = _searchController.text;
+    return _leads.where((lead) {
+      if (_overviewStageFilter != '전체 단계' &&
+          _stageNames[lead.stage] != _overviewStageFilter) {
+        return false;
+      }
+      if (_customerFilter != '고객사' && lead.customer != _customerFilter) {
+        return false;
+      }
+      return matchesSearchQuery([
+        lead.number,
+        lead.project,
+        lead.customer,
+        lead.dealer,
+        lead.owner,
+        '${lead.materialRatio.toStringAsFixed(1)}%',
+      ], query);
     }).toList();
   }
 
@@ -1570,7 +2473,10 @@ class _PipelineRegistrationViewState extends State<PipelineRegistrationView> {
     final number = _nextRobinNumber();
     final result = await showDialog<_PipelineLead>(
       context: context,
-      builder: (context) => _PipelineRegistrationDialog(number: number),
+      builder: (context) => _PipelineRegistrationDialog(
+        number: number,
+        initialStage: _activeStage == 1 ? 1 : 0,
+      ),
     );
     if (result == null || !mounted) return;
     setState(() {
@@ -1578,7 +2484,7 @@ class _PipelineRegistrationViewState extends State<PipelineRegistrationView> {
       _activeStage = 0;
       _selected = result;
     });
-    _message('${result.number} 물동/Assess가 등록되었습니다.');
+    _message('${result.number} ${_stageNames[result.stage]} 신규 수주가 등록되었습니다.');
   }
 
   String _nextRobinNumber([Set<String> reserved = const {}]) {
@@ -1596,6 +2502,18 @@ class _PipelineRegistrationViewState extends State<PipelineRegistrationView> {
       if (sequence != null && sequence > highest) highest = sequence;
     }
     return '$prefix${(highest + 1).toString().padLeft(3, '0')}';
+  }
+
+  Future<void> _downloadTrafficTemplate() async {
+    final sample = _selected ?? _leads.first;
+    final fields = _assessDetailFields(sample);
+    final path = await DesktopFileService.saveWorkbook(
+      suggestedName: '수주물동관리_양식.xlsx',
+      sheetName: '수주물동관리',
+      headers: fields.map((field) => field.label).toList(),
+      rows: [fields.map((field) => field.value).toList()],
+    );
+    if (path != null && mounted) _message('Excel 양식 저장 완료: $path');
   }
 
   Future<void> _showExcelImportDialog() async {
@@ -1788,7 +2706,7 @@ class _PipelineRegistrationViewState extends State<PipelineRegistrationView> {
   Future<void> _showStageChangeDialog(_PipelineLead lead) async {
     final stage = await showDialog<int>(
       context: context,
-      builder: (context) => SimpleDialog(
+      builder: (context) => RobinSimpleDialog(
         title: Text('${lead.number} 단계 변경'),
         children: [
           for (var index = 0; index < _stageNames.length; index++)
@@ -1824,7 +2742,7 @@ class _PipelineRegistrationViewState extends State<PipelineRegistrationView> {
     final note = dropNote ??
         await showDialog<String>(
           context: context,
-          builder: (context) => AlertDialog(
+          builder: (context) => RobinAlertDialog(
             title: Text('${lead.number} · ${_stageNames[nextStage]}'),
             content: SizedBox(
               width: 470,
@@ -1908,7 +2826,7 @@ class _PipelineRegistrationViewState extends State<PipelineRegistrationView> {
     if (nextStage == 3) {
       final go = await showDialog<bool>(
         context: context,
-        builder: (context) => AlertDialog(
+        builder: (context) => RobinAlertDialog(
           title: const Text('Closed Won 처리 완료'),
           content: const Text('ERP 수주 연계가 완료되었습니다. 수주관리로 이동할까요?'),
           actions: [
@@ -2000,7 +2918,7 @@ class _PipelineRegistrationViewState extends State<PipelineRegistrationView> {
     final isAdmin = robinUserProfile.value.isAdmin;
     await showDialog<void>(
       context: context,
-      builder: (context) => AlertDialog(
+      builder: (context) => RobinAlertDialog(
         title: const Text('단가 테이블 관리 · 구매팀장 권한'),
         content: SizedBox(
           width: 760,
@@ -2045,23 +2963,6 @@ class _PipelineRegistrationViewState extends State<PipelineRegistrationView> {
     );
   }
 
-  Widget _ratioBadge(double ratio) {
-    final color = ratio > 80
-        ? RobinTheme.signalRed
-        : ratio >= 75
-            ? RobinTheme.signalYellow
-            : RobinTheme.signalGreen;
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 4),
-      decoration: BoxDecoration(
-          color: color.withValues(alpha: .09),
-          borderRadius: BorderRadius.circular(99)),
-      child: Text('${ratio.toStringAsFixed(1)}%',
-          style: RobinTheme.labelXs
-              .copyWith(color: color, fontWeight: FontWeight.w700)),
-    );
-  }
-
   Widget _evidenceBadge(bool attached) {
     final color = attached ? RobinTheme.signalGreen : RobinTheme.signalRed;
     return Chip(
@@ -2072,32 +2973,6 @@ class _PipelineRegistrationViewState extends State<PipelineRegistrationView> {
       backgroundColor: color.withValues(alpha: .06),
     );
   }
-
-  Widget _approvalStep(String title, String subtitle, bool completed) =>
-      Container(
-        width: 205,
-        padding: const EdgeInsets.all(9),
-        decoration: _softPanel(),
-        child: Row(
-          children: [
-            Icon(completed ? Icons.check_circle : Icons.schedule,
-                size: 18,
-                color: completed
-                    ? RobinTheme.signalGreen
-                    : RobinTheme.signalYellow),
-            const SizedBox(width: 7),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(title, style: RobinTheme.headingSm),
-                  Text(subtitle, softWrap: true, style: RobinTheme.labelXs),
-                ],
-              ),
-            ),
-          ],
-        ),
-      );
 
   void _message(String message) {
     ScaffoldMessenger.of(context)
@@ -2463,8 +3338,22 @@ class _ProposalFileAttachDialogState extends State<_ProposalFileAttachDialog> {
     super.dispose();
   }
 
+  Future<void> _selectFile() async {
+    try {
+      final file = await DesktopFileService.pickDocument(
+        extensions: const ['pdf', 'xlsx', 'xls', 'dwg', 'step'],
+      );
+      if (file == null || !mounted) return;
+      setState(() => _fileName.text = file.name);
+    } on Object catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text('파일 선택 실패: $error')));
+    }
+  }
+
   @override
-  Widget build(BuildContext context) => AlertDialog(
+  Widget build(BuildContext context) => RobinAlertDialog(
         title: const Text('Proposal 파일 첨부'),
         content: SizedBox(
           width: 480,
@@ -2484,16 +3373,32 @@ class _ProposalFileAttachDialogState extends State<_ProposalFileAttachDialog> {
                   onChanged: (value) => _type = value ?? _type,
                 ),
                 const SizedBox(height: 10),
-                TextFormField(
-                  key: const ValueKey('proposal-file-name-input'),
-                  controller: _fileName,
-                  decoration: InputDecoration(
-                    labelText: '파일명',
-                    hintText: '예: Layout_Concept_${widget.nextRevision}.pdf',
-                    border: const OutlineInputBorder(),
-                  ),
-                  validator: (value) =>
-                      (value?.trim().isEmpty ?? true) ? '파일명을 입력해주세요.' : null,
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Expanded(
+                      child: TextFormField(
+                        key: const ValueKey('proposal-file-name-input'),
+                        controller: _fileName,
+                        decoration: InputDecoration(
+                          labelText: '파일명',
+                          hintText:
+                              '예: Layout_Concept_${widget.nextRevision}.pdf',
+                          border: const OutlineInputBorder(),
+                        ),
+                        validator: (value) => (value?.trim().isEmpty ?? true)
+                            ? '파일을 선택하거나 파일명을 입력해주세요.'
+                            : null,
+                      ),
+                    ),
+                    const SizedBox(width: 7),
+                    OutlinedButton.icon(
+                      key: const ValueKey('select-proposal-file'),
+                      onPressed: _selectFile,
+                      icon: const Icon(Icons.folder_open_outlined, size: 16),
+                      label: const Text('파일 선택'),
+                    ),
+                  ],
                 ),
                 const SizedBox(height: 10),
                 InputDecorator(
@@ -2603,7 +3508,7 @@ class _ErpOrderMatchDialogState extends State<_ErpOrderMatchDialog> {
   }
 
   @override
-  Widget build(BuildContext context) => AlertDialog(
+  Widget build(BuildContext context) => RobinAlertDialog(
         title: const Text('ERP 공식 수주번호 매칭'),
         content: SizedBox(
           width: 510,
@@ -2674,7 +3579,7 @@ class _ExcelImportPreviewDialog extends StatelessWidget {
   const _ExcelImportPreviewDialog();
 
   @override
-  Widget build(BuildContext context) => AlertDialog(
+  Widget build(BuildContext context) => RobinAlertDialog(
         title: const Row(
           children: [
             Icon(Icons.upload_file_outlined, color: RobinTheme.primary),
@@ -2803,7 +3708,11 @@ class _ExcelImportPreviewDialog extends StatelessWidget {
 
 class _PipelineRegistrationDialog extends StatefulWidget {
   final String number;
-  const _PipelineRegistrationDialog({required this.number});
+  final int initialStage;
+  const _PipelineRegistrationDialog({
+    required this.number,
+    required this.initialStage,
+  });
 
   @override
   State<_PipelineRegistrationDialog> createState() =>
@@ -2828,8 +3737,9 @@ class _PipelineRegistrationDialogState
   }
 
   @override
-  Widget build(BuildContext context) => AlertDialog(
-        title: const Text('신규 파이프라인 · Assess'),
+  Widget build(BuildContext context) => RobinAlertDialog(
+        title: Text(
+            '신규 파이프라인 · ${widget.initialStage == 1 ? 'Proposal' : 'Assess'}'),
         content: SizedBox(
           width: 540,
           child: Form(
@@ -2918,7 +3828,7 @@ class _PipelineRegistrationDialogState
                   customer: _customer,
                   dealer: _dealer,
                   owner: robinUserProfile.value.name,
-                  stage: 0,
+                  stage: widget.initialStage,
                   amount: double.tryParse(_amount.text) ?? 0,
                   materialCost: double.tryParse(_material.text) ?? 0,
                   quantity: 1,
@@ -3151,7 +4061,7 @@ class _DropInfoDialogState extends State<_DropInfoDialog> {
   }
 
   @override
-  Widget build(BuildContext context) => AlertDialog(
+  Widget build(BuildContext context) => RobinAlertDialog(
         title: const Text('Closed Lost · Drop 정보'),
         content: SizedBox(
           width: 500,
@@ -3394,33 +4304,6 @@ class _InfoBox extends StatelessWidget {
             Text(value, style: RobinTheme.headingSm),
           ],
         ),
-      );
-}
-
-class _DocumentRow extends StatelessWidget {
-  final IconData icon;
-  final String label;
-  final String file;
-  final String status;
-  const _DocumentRow(this.icon, this.label, this.file, this.status);
-
-  @override
-  Widget build(BuildContext context) => ListTile(
-        dense: true,
-        leading: Icon(icon, color: RobinTheme.primary),
-        title: Text(label),
-        subtitle: Text(file),
-        trailing: Chip(label: Text(status)),
-      );
-}
-
-class _ApprovalArrow extends StatelessWidget {
-  const _ApprovalArrow();
-
-  @override
-  Widget build(BuildContext context) => const Padding(
-        padding: EdgeInsets.symmetric(horizontal: 7),
-        child: Icon(Icons.arrow_forward, size: 17, color: RobinTheme.textMuted),
       );
 }
 

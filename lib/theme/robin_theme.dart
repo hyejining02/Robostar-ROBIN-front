@@ -45,10 +45,10 @@ class RobinTheme {
   // -- 타이포그래피 ---
   // -- 폰트 : LG스마트체 --
 
-  static const String fontFamily = 'LGSmart'; // LG스마트체
+  static const String fontFamily = 'Malgun Gothic'; // Windows 맑은 고딕
 
   static TextStyle get headingLg => const TextStyle(
-        fontSize: 20,
+        fontSize: 18,
         fontWeight: FontWeight.w700,
         color: textPrimary,
         letterSpacing: -0.3,
@@ -96,14 +96,32 @@ class RobinTheme {
   // --- 테마 ---
   static ThemeData get theme => ThemeData(
         useMaterial3: true,
+        visualDensity: const VisualDensity(horizontal: -2, vertical: -2),
         colorScheme: ColorScheme.fromSeed(
           seedColor: primary,
           brightness: Brightness.light,
           surface: surface,
         ),
         scaffoldBackgroundColor: background,
-        fontFamily: 'Pretendard',
+        fontFamily: fontFamily,
         dividerTheme: const DividerThemeData(color: border, thickness: 1),
+        dialogTheme: DialogThemeData(
+          backgroundColor: surface,
+          surfaceTintColor: Colors.transparent,
+          elevation: 18,
+          shadowColor: const Color(0x52000000),
+          barrierColor: const Color(0x73000000),
+          insetPadding:
+              const EdgeInsets.symmetric(horizontal: 28, vertical: 24),
+          clipBehavior: Clip.antiAlias,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(12),
+            side: const BorderSide(color: border),
+          ),
+          titleTextStyle: headingLg.copyWith(fontSize: 18),
+          contentTextStyle: bodyMd,
+          actionsPadding: const EdgeInsets.fromLTRB(20, 12, 20, 18),
+        ),
         cardTheme: CardThemeData(
           color: surface,
           elevation: 0,
@@ -113,13 +131,57 @@ class RobinTheme {
           ),
           margin: EdgeInsets.zero,
         ),
+        inputDecorationTheme: const InputDecorationTheme(
+          isDense: true,
+          contentPadding: EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+          border: OutlineInputBorder(),
+        ),
+        dataTableTheme: const DataTableThemeData(
+          headingRowHeight: 38,
+          dataRowMinHeight: 38,
+          dataRowMaxHeight: 48,
+          horizontalMargin: 10,
+          columnSpacing: 14,
+          dividerThickness: 1,
+        ),
+        chipTheme: const ChipThemeData(
+          padding: EdgeInsets.zero,
+          labelPadding: EdgeInsets.symmetric(horizontal: 8),
+          side: BorderSide(color: border),
+          shape: StadiumBorder(),
+        ),
+        iconButtonTheme: IconButtonThemeData(
+          style: IconButton.styleFrom(
+            minimumSize: const Size(32, 32),
+            padding: const EdgeInsets.all(6),
+          ),
+        ),
+        filledButtonTheme: FilledButtonThemeData(
+          style: FilledButton.styleFrom(
+            minimumSize: const Size(0, 32),
+            padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 7),
+          ),
+        ),
+        outlinedButtonTheme: OutlinedButtonThemeData(
+          style: OutlinedButton.styleFrom(
+            minimumSize: const Size(0, 32),
+            padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 7),
+          ),
+        ),
+        textButtonTheme: TextButtonThemeData(
+          style: TextButton.styleFrom(
+            minimumSize: const Size(0, 30),
+            padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
+          ),
+        ),
       );
 
   // --- 상태 배지 ---
   static Color statusBg(String status) {
     if (status.contains('진행')) return const Color(0xFFEFF6FF);
-    if (status.contains('완료') || status.contains('Success'))
+    if (status.contains('완료') || status.contains('Success')) {
       return successLight;
+    }
     if (status.contains('중단') || status.contains('Drop')) return errorLight;
     return const Color(0xFFF3F4F6);
   }

@@ -3,9 +3,43 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:robin_portal/models/access_control.dart';
 import 'package:robin_portal/screens/access_management_screen.dart';
 import 'package:robin_portal/services/auth_service.dart';
+import 'package:robin_portal/theme/robin_theme.dart';
+import 'package:robin_portal/widgets/robin_dialog.dart';
 import 'package:robin_portal/widgets/user_profile.dart';
 
 void main() {
+  testWidgets('공통 팝업은 내용 폭에 맞춰 화면 가운데 표시된다', (tester) async {
+    await tester.binding.setSurfaceSize(const Size(1900, 900));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: RobinTheme.theme,
+        home: Builder(
+          builder: (context) => Scaffold(
+            body: Center(
+              child: FilledButton(
+                onPressed: () => showRobinProfileEditor(context),
+                child: const Text('내 정보 수정'),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+
+    await tester.tap(find.widgetWithText(FilledButton, '내 정보 수정'));
+    await tester.pumpAndSettle();
+
+    expect(find.byType(RobinAlertDialog), findsOneWidget);
+    final firstField = find.byType(TextFormField).first;
+    final size = tester.getSize(firstField);
+    final center = tester.getCenter(firstField);
+    expect(size.width, inInclusiveRange(470, 500));
+    expect(center.dx, closeTo(950, 1));
+    expect(tester.takeException(), isNull);
+  });
+
   test('김대리점 데모 계정으로 로그인한다', () async {
     final employee = robinEmployees.value.firstWhere(
       (employee) => employee.id == 'kimdealer',

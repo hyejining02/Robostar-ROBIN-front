@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../models/access_control.dart';
+import 'robin_dialog.dart';
 
 class RobinUserProfile {
   final String name;
@@ -119,7 +120,7 @@ class _ProfileEditorDialogState extends State<_ProfileEditorDialog> {
   }
 
   @override
-  Widget build(BuildContext context) => AlertDialog(
+  Widget build(BuildContext context) => RobinAlertDialog(
         title: const Text('내 정보 수정'),
         content: SizedBox(
           width: 480,

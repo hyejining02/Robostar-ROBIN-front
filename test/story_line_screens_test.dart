@@ -6,6 +6,7 @@ import 'package:robin_portal/screens/pipeline_registration_screen.dart';
 import 'package:robin_portal/screens/portal_module_screen.dart';
 import 'package:robin_portal/screens/story_line_screens.dart';
 import 'package:robin_portal/services/project_todo_service.dart';
+import 'package:robin_portal/utils/search_query.dart';
 import 'package:robin_portal/widgets/user_profile.dart';
 
 void main() {
@@ -13,6 +14,14 @@ void main() {
     await tester.binding.setSurfaceSize(const Size(1800, 1100));
     addTearDown(() => tester.binding.setSurfaceSize(null));
   }
+
+  test('% 조건과 AND OR NOT 검색식을 처리한다', () {
+    const fields = ['RB-2608-014', 'A사 자동화라인', '김로빈 책임'];
+    expect(matchesSearchQuery(fields, '%자동화%'), isTrue);
+    expect(matchesSearchQuery(fields, 'A사 AND NOT B사'), isTrue);
+    expect(matchesSearchQuery(fields, 'B사 OR 김로빈'), isTrue);
+    expect(matchesSearchQuery(fields, 'A사 AND B사'), isFalse);
+  });
 
   testWidgets('Home에서 To-Do가 가장 먼저 표시된다', (tester) async {
     await setDesktopSize(tester);
@@ -23,16 +32,24 @@ void main() {
 
     expect(find.text('To-Do List'), findsOneWidget);
     expect(find.text('공지사항'), findsOneWidget);
-    expect(find.text('업데이트 사항'), findsOneWidget);
+    expect(find.text('업데이트 사항'), findsNothing);
     expect(find.text('AI Assistant'), findsOneWidget);
-    expect(find.text('팀별·담당자별 업무 부하 현황'), findsOneWidget);
-    expect(find.text('로봇 영업1팀'), findsWidgets);
+    expect(find.text('조직 현황판'), findsOneWidget);
+    expect(find.text('팀원별 업무 로드'), findsOneWidget);
     expect(find.textContaining('최플랫폼'), findsWidgets);
-    expect(find.text('전체 조회에서는 팀 요약만 표시합니다.'), findsOneWidget);
-    expect(find.text('로봇 영업1팀 팀원별 업무 부하 현황'), findsNothing);
+    expect(
+        find.byKey(const ValueKey('workload-department-filter')), findsNothing);
+    expect(find.byKey(const ValueKey('workload-team-filter')), findsNothing);
     expect(find.text('전체 사업부'), findsOneWidget);
     expect(find.text('물류 자동화 프로젝트'), findsOneWidget);
     expect(find.text('스마트 팩토리 플랫폼 구축'), findsOneWidget);
+
+    final firstTodoCheckbox = find.byType(Checkbox).first;
+    await tester.tap(firstTodoCheckbox);
+    await tester.pumpAndSettle();
+    expect(find.textContaining('완료 ·'), findsWidgets);
+    await tester.tap(firstTodoCheckbox);
+    await tester.pumpAndSettle();
 
     await tester.tap(find.byKey(const ValueKey('todo-division-filter')));
     await tester.pumpAndSettle();
@@ -43,16 +60,21 @@ void main() {
     expect(find.text('물류 자동화 프로젝트'), findsNothing);
     expect(find.text('조회 2건'), findsOneWidget);
 
-    await tester.tap(find.byKey(const ValueKey('workload-team-filter')));
-    await tester.pumpAndSettle();
-    await tester.tap(find.text('로봇 영업1팀').last);
-    await tester.pumpAndSettle();
-
-    expect(find.text('선택한 팀의 팀원 3명을 표시합니다.'), findsOneWidget);
-    expect(find.text('로봇 영업1팀 팀원별 업무 부하 현황'), findsOneWidget);
     expect(find.textContaining('박로빈'), findsWidgets);
     expect(find.textContaining('정영업'), findsWidgets);
     expect(find.textContaining('한로봇'), findsWidgets);
+
+    final aiInput = find.byKey(const ValueKey('mini-ai-chat-input'));
+    await tester.ensureVisible(aiInput);
+    await tester.pumpAndSettle();
+    await tester.enterText(aiInput, '납기 위험 알려줘');
+    final aiSend = find.byKey(const ValueKey('mini-ai-chat-send'));
+    await tester.ensureVisible(aiSend);
+    await tester.pumpAndSettle();
+    await tester.tap(aiSend);
+    await tester.pumpAndSettle();
+    expect(find.text('납기 위험 알려줘'), findsOneWidget);
+    expect(find.textContaining('현재 납기 위험은 4건'), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
 
@@ -79,7 +101,7 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    expect(find.text('팀별·담당자별 업무 부하 현황'), findsNothing);
+    expect(find.text('조직 현황판'), findsNothing);
     expect(find.text('To-Do List'), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
@@ -111,7 +133,7 @@ void main() {
     expect(find.text('플랫폼·모듈 사업담당'), findsWidgets);
     expect(find.text('스마트 팩토리 플랫폼 구축'), findsOneWidget);
     expect(find.text('물류 자동화 프로젝트'), findsNothing);
-    expect(find.text('오늘 처리할 To-Do  2건'), findsOneWidget);
+    expect(find.textContaining('오늘 처리할 To-Do'), findsNothing);
     expect(tester.takeException(), isNull);
   });
 
@@ -162,10 +184,10 @@ void main() {
 
     await tester.tap(find.text('단계별 입력'));
     await tester.pumpAndSettle();
-    expect(find.text('Assess · 물동'), findsOneWidget);
+    expect(find.text('Assess · 물동 · 등록가능'), findsOneWidget);
     expect(find.text('수주 중단'), findsNothing);
-    expect(find.text('Proposal · 컨셉설계'), findsOneWidget);
-    expect(find.text('Negotiation · 원가/결재'), findsOneWidget);
+    expect(find.text('Proposal · 컨셉설계 · 등록가능'), findsOneWidget);
+    expect(find.text('Negotiation · 원가/결재 · 전환'), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
 
@@ -289,10 +311,8 @@ void main() {
     expect(find.text('수주를 선택하면'), findsOneWidget);
     await tester.tap(find.byKey(const ValueKey('pipeline-stage-1')));
     await tester.pumpAndSettle();
-    await tester.tap(find.byKey(const ValueKey('proposal-RB-2608-014')));
-    await tester.pumpAndSettle();
-    expect(find.text('예상 물동'), findsOneWidget);
-    expect(find.text('컨셉 도면'), findsOneWidget);
+    expect(find.text('컨셉도면 사양 입력'), findsOneWidget);
+    expect(find.text('도면 협의 채널'), findsOneWidget);
 
     await tester.tap(find.byKey(const ValueKey('pipeline-stage-2')));
     await tester.pumpAndSettle();
@@ -313,7 +333,9 @@ void main() {
 
     await tester.tap(find.byKey(const ValueKey('pipeline-stage-1')));
     await tester.pumpAndSettle();
-    await tester.tap(find.byKey(const ValueKey('proposal-RB-2608-014')));
+    await tester.ensureVisible(
+      find.byKey(const ValueKey('proposal-collaboration-RB-2608-014')),
+    );
     await tester.pumpAndSettle();
     await tester.tap(
       find.byKey(const ValueKey('proposal-collaboration-RB-2608-014')),
@@ -352,7 +374,8 @@ void main() {
     await tester.tap(find.byKey(const ValueKey('save-proposal-collaboration')));
     await tester.pumpAndSettle();
     expect(find.text('Proposal 도면·댓글 협업'), findsNothing);
-    expect(find.textContaining('첨부 4건 · 댓글 3건'), findsWidgets);
+    expect(find.text('Layout_Concept_Rev04.pdf · Rev.04'), findsOneWidget);
+    expect(find.text('3건'), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
 
@@ -443,7 +466,8 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('진행단계 조회'), findsWidgets);
     expect(find.textContaining('SO-2608-014'), findsOneWidget);
-    expect(find.textContaining('SO-2608-011'), findsNothing);
+    expect(find.textContaining('SO-2608-011'), findsOneWidget);
+    expect(find.textContaining('SO-2608-006'), findsNothing);
     expect(find.text('메모·댓글'), findsNothing);
     expect(find.text('납기 변경'), findsNothing);
     expect(tester.takeException(), isNull);
@@ -456,11 +480,109 @@ void main() {
     );
     await tester.pumpAndSettle();
 
+    expect(find.text('원가 시뮬(ROBIN)'), findsNothing);
+    expect(find.text('원가 확정(ERP)'), findsNothing);
+    expect(find.text('수주확정가(ERP)'), findsNothing);
     await tester.tap(find.text('RB-2608-014'));
     await tester.pumpAndSettle();
+    expect(find.text('수주·원가 요약'), findsOneWidget);
+    expect(find.text('원가 시뮬(ROBIN)'), findsOneWidget);
+    expect(find.text('원가 확정(ERP)'), findsOneWidget);
+    expect(find.text('수주확정가(ERP)'), findsOneWidget);
     expect(find.text('원가 시뮬레이션'), findsOneWidget);
     expect(find.text('결재선'), findsOneWidget);
     expect(find.text('제안검토 · 수주 사양 변경이력'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('HTML 기준 전체 수주 선택과 통합 현황 검색이 연결된다', (tester) async {
+    await setDesktopSize(tester);
+    await tester.pumpWidget(
+      const MaterialApp(home: Scaffold(body: PipelineRegistrationView())),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('선택 수주 단계 변경 이력'), findsOneWidget);
+    expect(find.byKey(const ValueKey('pipeline-search-stage')), findsOneWidget);
+    expect(
+        find.byKey(const ValueKey('pipeline-search-customer')), findsOneWidget);
+    expect(find.byKey(const ValueKey('pipeline-search-query')), findsOneWidget);
+    await tester.enterText(
+      find.byKey(const ValueKey('pipeline-search-query')),
+      'RB-2608-014',
+    );
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('pipeline-overview-RB-2608-014')),
+        findsOneWidget);
+    expect(find.byKey(const ValueKey('pipeline-overview-RB-2608-011')),
+        findsNothing);
+    await tester
+        .tap(find.byKey(const ValueKey('pipeline-overview-RB-2608-014')));
+    await tester.pumpAndSettle();
+    expect(find.textContaining('Negotiation · 원가/결재 · 전환'), findsOneWidget);
+
+    await tester.pumpWidget(const MaterialApp(home: OrderManagementScreen()));
+    await tester.pumpAndSettle();
+    expect(find.text('이익률'), findsOneWidget);
+    expect(find.text('수주확정가(ERP)'), findsNothing);
+    expect(find.byKey(const ValueKey('order-search-type')), findsOneWidget);
+    await tester.enterText(
+        find.byKey(const ValueKey('order-management-search')), 'A사');
+    await tester.pumpAndSettle();
+    expect(find.text('RB-2608-014'), findsOneWidget);
+    expect(find.text('RB-2608-011'), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('프로젝트에서 포함 수주와 수주별 BOM 10개를 조회한다', (tester) async {
+    await setDesktopSize(tester);
+    await tester.pumpWidget(
+      const MaterialApp(home: ProjectManagementScreen()),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('프로젝트번호'), findsOneWidget);
+    expect(find.text('Lead Time'), findsWidgets);
+    expect(find.text('PJ-2608-001'), findsWidgets);
+    expect(find.text('수주 3건'), findsOneWidget);
+    expect(find.text('SO-2608-014'), findsWidgets);
+    expect(find.text('SO-2608-011'), findsOneWidget);
+    expect(find.text('SO-2608-009'), findsOneWidget);
+
+    await tester.tap(find.text('구매').last);
+    await tester.pumpAndSettle();
+    expect(find.text('B-001'), findsOneWidget);
+    expect(find.text('B-010'), findsOneWidget);
+    expect(find.text('구매 진행상태'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('프로젝트 예시 30건을 내부 스크롤하고 검색한다', (tester) async {
+    await setDesktopSize(tester);
+    await tester.pumpWidget(
+      const MaterialApp(home: ProjectManagementScreen()),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('프로젝트 현황 — 30건'), findsOneWidget);
+    final projectList = tester.widget<SingleChildScrollView>(
+      find.byKey(const ValueKey('project-list-scroll')),
+    );
+    expect(projectList.controller!.position.maxScrollExtent, greaterThan(0));
+
+    await tester.enterText(
+      find.byKey(const ValueKey('project-management-search')),
+      'PJ-2608-030',
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('프로젝트 현황 — 1건'), findsOneWidget);
+    expect(
+      find.descendant(
+        of: find.byKey(const ValueKey('project-list-scroll')),
+        matching: find.text('PJ-2608-030'),
+      ),
+      findsOneWidget,
+    );
     expect(tester.takeException(), isNull);
   });
 
@@ -484,6 +606,30 @@ void main() {
     await tester.tap(find.text('품질').last);
     await tester.pumpAndSettle();
     expect(find.textContaining('IQC'), findsWidgets);
+    expect(
+      find.byKey(const ValueKey('quality-panel-iqc')),
+      findsOneWidget,
+    );
+    await tester.ensureVisible(find.byKey(const ValueKey('quality-tab-lqc')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('quality-tab-lqc')));
+    await tester.pumpAndSettle();
+    expect(
+      find.byKey(const ValueKey('quality-panel-lqc')),
+      findsOneWidget,
+    );
+    expect(find.text('WO-2608-002'), findsOneWidget);
+    await tester.ensureVisible(find.byKey(const ValueKey('quality-tab-oqc')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('quality-tab-oqc')));
+    await tester.pumpAndSettle();
+    expect(
+      find.byKey(const ValueKey('quality-panel-oqc')),
+      findsOneWidget,
+    );
+    expect(find.text('출하 가능'), findsOneWidget);
+    await tester.ensureVisible(find.text('검사 결과 입력'));
+    await tester.pumpAndSettle();
     await tester.tap(find.text('검사 결과 입력'));
     await tester.pumpAndSettle();
     expect(find.text('품질 입력 · 수주번호 검색'), findsOneWidget);
@@ -496,6 +642,43 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('품질 검사 결과 입력'), findsOneWidget);
     expect(find.text('기본값 0(양품)'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('물류 단계에서 납품 배송 인수증 정보를 직접 입력한다', (tester) async {
+    await setDesktopSize(tester);
+    await tester.pumpWidget(
+      const MaterialApp(home: ProjectManagementScreen()),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('물류').last);
+    await tester.pumpAndSettle();
+
+    expect(find.text('① 영업 입력 — 납품 정보'), findsOneWidget);
+    expect(find.text('② 물류담당자 입력 — 배송 처리'), findsOneWidget);
+    expect(find.text('③ 인수증 관리 — 고객 인수 확인'), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey('logistics-delivery-status')),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const ValueKey('logistics-receipt-status')),
+      findsOneWidget,
+    );
+
+    final address = find.byKey(const ValueKey('logistics-address-input'));
+    await tester.ensureVisible(address);
+    await tester.pumpAndSettle();
+    await tester.enterText(address, '경기도 화성시 고객사 A공장');
+    expect(find.text('경기도 화성시 고객사 A공장'), findsOneWidget);
+
+    final save = find.byKey(const ValueKey('logistics-save'));
+    await tester.ensureVisible(save);
+    await tester.pumpAndSettle();
+    await tester.tap(save);
+    await tester.pump();
+    expect(find.text('물류 및 인수증 정보를 저장했습니다.'), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
 
@@ -550,7 +733,7 @@ void main() {
 
     await tester.pumpWidget(scaled(DashboardScreen(onNavigate: (_) {})));
     await tester.pumpAndSettle();
-    expect(find.text('팀별·담당자별 업무 부하 현황'), findsOneWidget);
+    expect(find.text('조직 현황판'), findsOneWidget);
     expect(tester.takeException(), isNull);
 
     await tester.pumpWidget(
@@ -574,7 +757,8 @@ void main() {
   });
 
   testWidgets('데스크톱 창에서 세 관리 표의 오른쪽 열이 가려지지 않는다', (tester) async {
-    Future<void> expectTableFits(Widget screen, Size size) async {
+    Future<void> expectTableFits(Widget screen, Size size,
+        {bool allowInternalScroll = false}) async {
       await tester.binding.setSurfaceSize(size);
       await tester.pumpWidget(MaterialApp(home: Scaffold(body: screen)));
       await tester.pumpAndSettle();
@@ -589,7 +773,14 @@ void main() {
           );
       expect(controlledHorizontalScrolls, isNotEmpty);
       for (final scroll in controlledHorizontalScrolls) {
-        expect(scroll.controller!.position.maxScrollExtent, closeTo(0, .01));
+        final maxExtent = scroll.controller!.position.maxScrollExtent;
+        if (allowInternalScroll) {
+          scroll.controller!.jumpTo(maxExtent);
+          await tester.pump();
+          expect(scroll.controller!.offset, closeTo(maxExtent, .01));
+        } else {
+          expect(maxExtent, closeTo(0, .01));
+        }
       }
       expect(tester.takeException(), isNull);
     }
@@ -614,6 +805,7 @@ void main() {
     await expectTableFits(
       const ProjectManagementScreen(),
       const Size(1377, 850),
+      allowInternalScroll: true,
     );
   });
 }
