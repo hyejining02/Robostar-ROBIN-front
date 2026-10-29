@@ -36,7 +36,7 @@ class PortalModuleScreen extends StatelessWidget {
   });
 
   String get _title => switch (type) {
-        PortalModule.pipeline => '파이프라인 등록',
+        PortalModule.pipeline => '파이프라인',
         PortalModule.orderRegistration => '신규 수주 등록',
         PortalModule.organizationApps => 'AX Board',
         PortalModule.aiAssistant => 'AI Assistant',
@@ -265,7 +265,7 @@ class _PipelineViewState extends State<_PipelineView> {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         _PageIntro(
-          '파이프라인 등록',
+          '파이프라인',
           'Assess → Proposal → Negotiation → Closed Won / Closed Lost 단계별 정보를 관리합니다.',
           action: Row(
             mainAxisSize: MainAxisSize.min,
@@ -279,7 +279,7 @@ class _PipelineViewState extends State<_PipelineView> {
               FilledButton.icon(
                 onPressed: _registerLead,
                 icon: const Icon(Icons.add, size: 18),
-                label: const Text('파이프라인 등록'),
+                label: const Text('신규 파이프라인'),
               ),
             ],
           ),
@@ -535,9 +535,9 @@ class _PipelineViewState extends State<_PipelineView> {
               const SizedBox(height: 10),
               const _ProcessRow(
                 icon: Icons.post_add_outlined,
-                title: '수주관리 연계',
+                title: '수주 현황·재료비 연계',
                 description:
-                    'Closed Won 처리 후 수주관리에서 ROBIN 제안가와 ERP 확정 정보를 확인합니다.',
+                    'Closed Won 처리 후 수주 현황·재료비에서 ROBIN 제안가와 ERP 확정 정보를 확인합니다.',
               ),
             ],
           ),
@@ -558,7 +558,7 @@ class _PipelineViewState extends State<_PipelineView> {
 
     _pendingOrderDraft = _OrderDraft.fromLead(lead);
     _replaceLead(lead, lead.markSuccess());
-    _addHistory(lead, 3, 'ERP 연계 완료 · 수주관리 연계');
+    _addHistory(lead, 3, 'ERP 연계 완료 · 수주 현황·재료비 연계');
     final goToOrderRegistration = await showDialog<bool>(
       context: context,
       barrierDismissible: false,
@@ -579,7 +579,7 @@ class _PipelineViewState extends State<_PipelineView> {
               Text('${lead.number} 수주가 성공 처리되었습니다.', style: RobinTheme.bodyMd),
               const SizedBox(height: 14),
               const _ResultRow(label: 'ERP 연계', value: '전송 완료'),
-              const _ResultRow(label: '수주관리', value: 'ROBIN/ERP 확정 정보 확인'),
+              const _ResultRow(label: '수주 현황·재료비', value: 'ROBIN/ERP 확정 정보 확인'),
             ],
           ),
         ),
@@ -591,7 +591,7 @@ class _PipelineViewState extends State<_PipelineView> {
           FilledButton.icon(
             onPressed: () => Navigator.pop(dialogContext, true),
             icon: const Icon(Icons.arrow_forward, size: 17),
-            label: const Text('수주관리로 이동'),
+            label: const Text('수주 현황·재료비로 이동'),
           ),
         ],
       ),
@@ -1247,7 +1247,7 @@ class _LeadRegistrationDialogState extends State<_LeadRegistrationDialog> {
   @override
   Widget build(BuildContext context) {
     return RobinAlertDialog(
-      title: const Text('파이프라인 등록'),
+      title: const Text('신규 파이프라인'),
       content: SizedBox(
         width: 480,
         child: Form(
@@ -2583,7 +2583,7 @@ class _AssistantView extends StatelessWidget {
                 child: ListView(padding: const EdgeInsets.all(22), children: [
                   _chat('ROBIN에서 신규 수주는 어떻게 등록하나요?', true),
                   _chat(
-                      '파이프라인 등록에서 Assess 물동, Proposal 컨셉설계, Negotiation 상세 Spec.·가격·결재를 진행한 뒤 수주관리에서 확정 상태를 확인하세요.',
+                      '파이프라인에서 Assess 물동, Proposal 컨셉설계, Negotiation 상세 Spec.·가격·결재를 진행한 뒤 수주 현황·재료비에서 확정 상태를 확인하세요.',
                       false),
                 ]),
               ),
@@ -3192,12 +3192,12 @@ class _FaqView extends StatelessWidget {
       (
         '수주 등록',
         '신규 수주는 어떻게 등록하나요?',
-        '파이프라인 등록의 Assess → Proposal → Negotiation 단계를 완료하고 Closed Won 처리 후 수주관리에서 ERP 확정 상태를 확인하세요.'
+        '파이프라인의 Assess → Proposal → Negotiation 단계를 완료하고 Closed Won 처리 후 수주 현황·재료비에서 ERP 확정 상태를 확인하세요.'
       ),
       (
         '파이프라인',
         '수주 단계는 어떻게 변경하나요?',
-        '파이프라인 등록에서 프로젝트 카드를 선택하고 Assess, Proposal, Negotiation, Closed Won/Lost를 지정하거나 어느 단계에서든 Drop 처리하세요.'
+        '파이프라인에서 프로젝트 카드를 선택하고 Assess, Proposal, Negotiation, Closed Won/Lost를 지정하거나 어느 단계에서든 Drop 처리하세요.'
       ),
       (
         '프로젝트',

@@ -12,6 +12,10 @@ class ProjectTodoItem {
   final String createdBy;
   final String createdAt;
   final RobinBusinessDivision division;
+  final String sourceLabel;
+  final int navigationIndex;
+  final String? workflowSection;
+  final String? workflowRecordId;
 
   const ProjectTodoItem({
     required this.id,
@@ -23,6 +27,10 @@ class ProjectTodoItem {
     required this.createdBy,
     required this.createdAt,
     this.division = RobinBusinessDivision.robot,
+    this.sourceLabel = '프로젝트 메모 자동 생성',
+    this.navigationIndex = 3,
+    this.workflowSection,
+    this.workflowRecordId,
   });
 }
 

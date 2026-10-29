@@ -84,9 +84,9 @@ class PortalTabPermission {
 
 const portalTabPermissions = [
   PortalTabPermission(0, 'Home', '홈'),
-  PortalTabPermission(1, '파이프라인 등록', '수주/프로젝트 관리'),
-  PortalTabPermission(2, '수주관리', '수주/프로젝트 관리'),
+  PortalTabPermission(1, '파이프라인', '수주/프로젝트 관리'),
   PortalTabPermission(3, '프로젝트 관리', '수주/프로젝트 관리'),
+  PortalTabPermission(2, '수주 현황·재료비', '수주/프로젝트 관리'),
   PortalTabPermission(4, 'AX Board', 'AX Board'),
   PortalTabPermission(5, 'AI Assistant', 'AX Board'),
   PortalTabPermission(6, '공지사항', 'AX Board'),

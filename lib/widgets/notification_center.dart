@@ -1,4 +1,9 @@
 import 'package:flutter/material.dart';
+import '../models/access_control.dart';
+import '../services/project_todo_service.dart';
+import '../services/business_division_scope.dart';
+import '../screens/order_workflow_screen.dart';
+import 'user_profile.dart';
 
 import '../theme/robin_theme.dart';
 import 'robin_dialog.dart';
@@ -15,6 +20,9 @@ class RobinNotification {
   final String createdAt;
   final String? dueDate;
   final bool isRead;
+  final RobinBusinessDivision? division;
+  final String? workflowSection;
+  final String? workflowRecordId;
 
   const RobinNotification({
     required this.id,
@@ -26,6 +34,9 @@ class RobinNotification {
     required this.createdAt,
     this.dueDate,
     this.isRead = false,
+    this.division,
+    this.workflowSection,
+    this.workflowRecordId,
   });
 }
 
@@ -132,6 +143,22 @@ Future<void> showRobinNotificationDetail(
   BuildContext context,
   RobinNotification notification,
 ) async {
+  if (notification.workflowSection != null && notification.division != null) {
+    if (BusinessDivisionScope.current()
+        .allowed
+        .contains(notification.division)) {
+      selectedBusinessDivision.value = notification.division;
+    }
+    await Navigator.push(
+        context,
+        MaterialPageRoute(
+            builder: (_) => OrderWorkflowScreen(
+                recordKey: (notification.division!, notification.projectNo),
+                projectName: notification.projectName,
+                initialSection: notification.workflowSection!,
+                initialRecordId: notification.workflowRecordId)));
+    return;
+  }
   await showDialog<void>(
     context: context,
     builder: (dialogContext) => RobinAlertDialog(
@@ -210,10 +237,32 @@ class RobinNotificationList extends StatelessWidget {
   });
 
   @override
-  Widget build(BuildContext context) {
-    final items = maxItems == null
-        ? robinNotifications
-        : robinNotifications.take(maxItems!).toList();
+  Widget build(BuildContext context) => ListenableBuilder(
+      listenable: Listenable.merge([projectTodoItems, robinUserProfile]),
+      builder: (context, _) => _buildList(context));
+  Widget _buildList(BuildContext context) {
+    final user = robinUserProfile.value;
+    final workflowNotifications = [
+      for (final t in projectTodoItems.value)
+        if (!user.isDealer &&
+            t.workflowSection != null &&
+            [user.name, '${user.name} ${user.rank}'].contains(t.assignee) &&
+            BusinessDivisionScope.current().includes(t.division))
+          RobinNotification(
+              id: t.id,
+              type: RobinNotificationType.assignment,
+              title: t.task,
+              message: t.sourceLabel,
+              projectNo: t.orderNo,
+              projectName: t.projectName,
+              createdAt: t.createdAt,
+              division: t.division,
+              workflowSection: t.workflowSection,
+              workflowRecordId: t.workflowRecordId)
+    ];
+    final allItems = [...workflowNotifications, ...robinNotifications];
+    final items =
+        maxItems == null ? allItems : allItems.take(maxItems!).toList();
     return ListView.separated(
       padding: const EdgeInsets.symmetric(vertical: 6),
       itemCount: items.length,

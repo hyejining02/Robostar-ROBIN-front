@@ -1,12 +1,21 @@
 import 'package:flutter/material.dart';
 
+import '../models/access_control.dart';
+import '../services/business_division_scope.dart';
+import '../services/design_work_service.dart';
+import 'design_work_management_screen.dart';
+import 'order_workflow_screen.dart';
 import '../services/desktop_file_service.dart';
 import '../services/project_todo_service.dart';
+import '../services/product_identity_service.dart';
 import '../theme/robin_theme.dart';
 import '../utils/search_query.dart';
 import '../widgets/app_bar.dart';
 import '../widgets/robin_dialog.dart';
 import '../widgets/user_profile.dart';
+import '../widgets/business_division_workspace.dart';
+import '../widgets/product_identity_panel.dart';
+import '../widgets/platform_review_workspace.dart';
 
 class OrderManagementScreen extends StatefulWidget {
   const OrderManagementScreen({super.key});
@@ -16,6 +25,9 @@ class OrderManagementScreen extends StatefulWidget {
 }
 
 class _OrderManagementScreenState extends State<OrderManagementScreen> {
+  BusinessDivisionScope _scope = BusinessDivisionScope.current();
+  List<_OrderRow> get _scopedRows =>
+      _rows.where((row) => _scope.includes(row.division)).toList();
   String _stage = '전체 단계';
   String _searchType = '고객사별';
   _OrderRow? _selected;
@@ -23,6 +35,12 @@ class _OrderManagementScreenState extends State<OrderManagementScreen> {
   final _searchController = TextEditingController();
 
   static const _rows = [
+    _OrderRow('RB-2608-PL01', '플랫폼 고객사', '본사 직판', '최플랫폼 책임', 'Assess',
+        '플랫폼 EFEM 모듈 구축', 88000, 60000, 68.2, 0, '검토 대기', 0, 0,
+        division: RobinBusinessDivision.platformModule),
+    _OrderRow('RB-2608-PL02', '모듈 고객사', '본사 직판', '최플랫폼 책임', 'Proposal',
+        '플랫폼 웨이퍼 이송 모듈', 65000, 44000, 67.7, 0, '제안 검토', 0, 0,
+        division: RobinBusinessDivision.platformModule),
     _OrderRow('RB-2608-014', 'A사', '서울 대리점', '김로빈 책임', 'Negotiation',
         '자동화라인 증설', 125000, 97200, 77.8, 95400, '결재 진행', 2, 1),
     _OrderRow('RB-2608-011', 'B사', '본사 직판', '박로빈 사원', 'Proposal', '물류 로봇 시스템',
@@ -43,10 +61,20 @@ class _OrderManagementScreenState extends State<OrderManagementScreen> {
   }
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context) => BusinessDivisionWorkspace(
+        builder: (context, scope) {
+          _scope = scope;
+          if (_selected != null && !_scopedRows.contains(_selected)) {
+            _selected = null;
+          }
+          return _buildScopedContent(context);
+        },
+      );
+
+  Widget _buildScopedContent(BuildContext context) {
     if (robinUserProfile.value.isDealer) return _buildDealerBidScreen();
     final query = _searchController.text.trim().toLowerCase();
-    final visible = _rows.where((row) {
+    final visible = _scopedRows.where((row) {
       if (_stage != '전체 단계' && row.stage != _stage) {
         return false;
       }
@@ -64,19 +92,22 @@ class _OrderManagementScreenState extends State<OrderManagementScreen> {
 
     return Scaffold(
       backgroundColor: RobinTheme.background,
-      appBar: const RobinAppBar(title: '수주관리'),
+      appBar: const RobinAppBar(title: '수주 현황·재료비'),
       body: SingleChildScrollView(
         padding: const EdgeInsets.all(16),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
+            BusinessDivisionBar(scope: _scope),
+            if (_scope.includes(RobinBusinessDivision.platformModule))
+              const PlatformReviewWorkspace(),
             Row(
               children: [
                 Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text('수주관리', style: RobinTheme.headingLg),
+                      Text('수주 현황·재료비', style: RobinTheme.headingLg),
                       const SizedBox(height: 3),
                       Text('전체 파이프라인의 가격·원가·이익률·결재 현황을 한 화면에서 조회합니다.',
                           style: RobinTheme.bodySm),
@@ -85,8 +116,7 @@ class _OrderManagementScreenState extends State<OrderManagementScreen> {
                 ),
                 FilledButton.icon(
                   onPressed: () => ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(
-                        content: Text('파이프라인 등록 화면에서 신규 수주를 등록합니다.')),
+                    const SnackBar(content: Text('파이프라인 화면에서 신규 수주를 등록합니다.')),
                   ),
                   icon: const Icon(Icons.add, size: 16),
                   label: const Text('수주 등록'),
@@ -94,7 +124,7 @@ class _OrderManagementScreenState extends State<OrderManagementScreen> {
               ],
             ),
             const SizedBox(height: 10),
-            const _OrderKpiGrid(),
+            _OrderKpiGrid(rows: _scopedRows),
             const SizedBox(height: 8),
             Container(
               width: double.infinity,
@@ -212,6 +242,7 @@ class _OrderManagementScreenState extends State<OrderManagementScreen> {
                           DataColumn(label: _storyTableText(86, '결재상태')),
                           DataColumn(label: _storyTableText(76, '담당자')),
                           DataColumn(label: _storyTableText(62, '처리')),
+                          DataColumn(label: _storyTableText(130, '사업부')),
                         ],
                         rows: visible.map((row) {
                           final selected = _selected?.number == row.number;
@@ -264,6 +295,8 @@ class _OrderManagementScreenState extends State<OrderManagementScreen> {
                                       : '상세'),
                                 ),
                               )),
+                              DataCell(
+                                  _storyTableText(130, row.division.label)),
                             ],
                           );
                         }).toList(),
@@ -281,7 +314,7 @@ class _OrderManagementScreenState extends State<OrderManagementScreen> {
 
   Widget _buildDealerBidScreen() {
     final department = robinUserProfile.value.department;
-    final rows = _rows.where((row) => row.channel == department).toList();
+    final rows = _scopedRows.where((row) => row.channel == department).toList();
     return Scaffold(
       backgroundColor: RobinTheme.background,
       appBar: const RobinAppBar(title: '내 입찰'),
@@ -290,6 +323,7 @@ class _OrderManagementScreenState extends State<OrderManagementScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
+            BusinessDivisionBar(scope: _scope),
             Text('내 입찰', style: RobinTheme.headingLg),
             const SizedBox(height: 4),
             Text('내 대리점이 참여한 입찰과 제안 진행 상태만 조회합니다.', style: RobinTheme.bodySm),
@@ -368,11 +402,15 @@ class _OrderManagementScreenState extends State<OrderManagementScreen> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text('수주·원가 요약', style: RobinTheme.headingSm),
+                OrderWorkflowButton(
+                    recordKey: (row.division, row.number),
+                    projectName: row.task),
                 const SizedBox(height: 8),
                 Wrap(
                   spacing: 10,
                   runSpacing: 10,
                   children: [
+                    _detailValue('사업부', row.division.label),
                     _detailValue('고객사', row.customer),
                     _detailValue('영업 채널', row.channel),
                     _detailValue('담당자', row.owner),
@@ -402,12 +440,13 @@ class _OrderManagementScreenState extends State<OrderManagementScreen> {
                 ),
                 const SizedBox(height: 16),
                 Text('제안·사양 정보', style: RobinTheme.headingSm),
+                ProductIdentityPanel(recordKey: (row.division, row.number)),
                 const SizedBox(height: 8),
                 Wrap(
                   spacing: 10,
                   runSpacing: 10,
                   children: [
-                    _detailValue('Proposal 도면', 'PDM Rev.03 연계'),
+                    _detailValue('Proposal 도면', '별도 첨부 관리 · PDM 미연동'),
                     _detailValue('상세 Spec.', '가반하중 80kg · Reach 2,100mm'),
                     _detailValue('증빙',
                         row.materialRatio >= 80 ? '미첨부 · RED' : '첨부완료 · GREEN'),
@@ -447,14 +486,26 @@ class _OrderManagementScreenState extends State<OrderManagementScreen> {
               onPressed: () => Navigator.pop(dialogContext),
               child: const Text('닫기')),
           OutlinedButton.icon(
-              onPressed: () {},
+              onPressed: () => Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                      builder: (_) => OrderWorkflowScreen(
+                          recordKey: (row.division, row.number),
+                          projectName: row.task))),
               icon: const Icon(Icons.attach_file, size: 17),
               label: const Text('증빙 첨부')),
           FilledButton.icon(
               onPressed: () {
-                Navigator.pop(dialogContext);
-                ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text('결재가 상신되었습니다.')));
+                Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                        builder: (_) => OrderWorkflowScreen(
+                            recordKey: (row.division, row.number),
+                            projectName: row.task,
+                            initialSection:
+                                row.division == RobinBusinessDivision.robot
+                                    ? 'approvals'
+                                    : 'vrb')));
               },
               icon: const Icon(Icons.approval_outlined, size: 17),
               label: const Text('결재 상신')),
@@ -473,6 +524,9 @@ class ProjectManagementScreen extends StatefulWidget {
 }
 
 class _ProjectManagementScreenState extends State<ProjectManagementScreen> {
+  BusinessDivisionScope _scope = BusinessDivisionScope.current();
+  List<_ProjectRow> get _scopedProjects =>
+      _projects.where((row) => _scope.includes(row.division)).toList();
   _ProjectRow _selected = _projects.first;
   String _selectedProjectNumber = 'PJ-2608-001';
   final _tableController = ScrollController();
@@ -480,6 +534,38 @@ class _ProjectManagementScreenState extends State<ProjectManagementScreen> {
   final Map<String, List<_ProjectMemoEntry>> _memoThreads = {};
   int _selectedStageIndex = 1;
   String _projectSearch = '';
+
+  Future<void> _openDesignWork() async {
+    final target = await Navigator.push<(RobinBusinessDivision, String)>(
+        context,
+        MaterialPageRoute(
+            builder: (_) => DesignWorkManagementScreen(orders: [
+                  for (final row in _projects)
+                    DesignOrderSource(
+                        division: row.division,
+                        number: row.number,
+                        project: row.projectName,
+                        model: row.model,
+                        due: row.changedDueDate == '-'
+                            ? row.dueDate
+                            : row.changedDueDate,
+                        stage: row.stage,
+                        urgent: row.urgent)
+                ])));
+    if (!mounted || target == null) {
+      return;
+    }
+    final row = _scopedProjects
+        .where((r) => r.division == target.$1 && r.number == target.$2)
+        .firstOrNull;
+    if (row != null) {
+      setState(() {
+        _selected = row;
+        _selectedProjectNumber = row.projectNumber;
+        _selectedStageIndex = 0;
+      });
+    }
+  }
 
   static final _projects = <_ProjectRow>[
     const _ProjectRow(
@@ -496,7 +582,7 @@ class _ProjectManagementScreenState extends State<ProjectManagementScreen> {
       dueDate: '2026-09-20',
       changedDueDate: '2026-09-27',
       urgent: true,
-      memo: 'BOM 장기재고 2건 확인 필요',
+      memo: 'BOM 장납기재고 2건 확인 필요',
       channel: '서울 대리점',
       closeStatus: '진행중',
     ),
@@ -573,6 +659,44 @@ class _ProjectManagementScreenState extends State<ProjectManagementScreen> {
       closeStatus: '마감대기',
     ),
     ..._buildAdditionalProjectRows(),
+    const _ProjectRow(
+      division: RobinBusinessDivision.platformModule,
+      number: 'SO-2608-PL01',
+      projectNumber: 'PJ-2608-PL01',
+      projectName: '플랫폼 EFEM 생산 프로젝트',
+      orderName: 'EFEM 1호기',
+      customer: '플랫폼 고객사',
+      pm: '최플랫폼 책임',
+      model: 'EFEM-DEMO',
+      stage: '설계',
+      leadTime: '25.0일',
+      progress: 18,
+      dueDate: '2026-12-20',
+      changedDueDate: '-',
+      urgent: false,
+      memo: '플랫폼 설계 검토 대기',
+      channel: '본사 직판',
+      closeStatus: '진행중',
+    ),
+    const _ProjectRow(
+      division: RobinBusinessDivision.platformModule,
+      number: 'SO-2608-PL02',
+      projectNumber: 'PJ-2608-PL02',
+      projectName: '플랫폼 모듈 생산 프로젝트',
+      orderName: '이송 모듈 1호기',
+      customer: '모듈 고객사',
+      pm: '최플랫폼 책임',
+      model: 'MODULE-DEMO',
+      stage: '구매',
+      leadTime: '20.0일',
+      progress: 35,
+      dueDate: '2026-12-25',
+      changedDueDate: '-',
+      urgent: false,
+      memo: '플랫폼 모듈 입고 확인',
+      channel: '본사 직판',
+      closeStatus: '진행중',
+    ),
   ];
 
   @override
@@ -583,7 +707,29 @@ class _ProjectManagementScreenState extends State<ProjectManagementScreen> {
   }
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context) => BusinessDivisionWorkspace(
+        builder: (context, scope) {
+          _scope = scope;
+          final rows = _scopedProjects;
+          if (rows.isEmpty) {
+            return Scaffold(
+              appBar: const RobinAppBar(title: '프로젝트 관리'),
+              body: Column(children: [
+                BusinessDivisionBar(scope: scope),
+                const Text('조회 가능한 프로젝트가 없습니다.'),
+              ]),
+            );
+          }
+          if (!rows.contains(_selected)) {
+            _selected = rows.first;
+            _selectedProjectNumber = _selected.projectNumber;
+            _selectedStageIndex = _projectStages.indexOf(_selected.stage);
+          }
+          return _buildScopedContent(context);
+        },
+      );
+
+  Widget _buildScopedContent(BuildContext context) {
     if (robinUserProfile.value.isDealer) return _buildDealerProgressScreen();
     return Scaffold(
       backgroundColor: RobinTheme.background,
@@ -593,12 +739,25 @@ class _ProjectManagementScreenState extends State<ProjectManagementScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text('프로젝트 관리', style: RobinTheme.headingLg),
+            BusinessDivisionBar(scope: _scope),
+            Wrap(
+                spacing: 16,
+                runSpacing: 8,
+                crossAxisAlignment: WrapCrossAlignment.center,
+                children: [
+                  Text('프로젝트 관리', style: RobinTheme.headingLg),
+                  if (canReadDesignWork)
+                    OutlinedButton.icon(
+                        key: const ValueKey('open-design-work'),
+                        onPressed: _openDesignWork,
+                        icon: const Icon(Icons.engineering_outlined, size: 18),
+                        label: const Text('설계 업무관리')),
+                ]),
             const SizedBox(height: 4),
             Text('프로젝트를 선택하고 포함된 수주별로 설계부터 마감까지 독립 관리합니다.',
                 style: RobinTheme.bodySm),
             const SizedBox(height: 10),
-            const _ProjectStageSummary(),
+            _ProjectStageSummary(projects: _scopedProjects),
             const SizedBox(height: 8),
             Container(
               width: double.infinity,
@@ -681,6 +840,7 @@ class _ProjectManagementScreenState extends State<ProjectManagementScreen> {
                                     DataColumn(label: Text('납기일')),
                                     DataColumn(label: Text('변경 납기일')),
                                     DataColumn(label: Text('상태')),
+                                    DataColumn(label: Text('사업부')),
                                   ],
                                   rows:
                                       _filteredProjectSummaries.map((project) {
@@ -690,7 +850,7 @@ class _ProjectManagementScreenState extends State<ProjectManagementScreen> {
                                       onSelectChanged: (_) => setState(() {
                                         _selectedProjectNumber =
                                             project.projectNumber;
-                                        _selected = _projects.firstWhere(
+                                        _selected = _scopedProjects.firstWhere(
                                             (row) =>
                                                 row.projectNumber ==
                                                 project.projectNumber);
@@ -712,17 +872,12 @@ class _ProjectManagementScreenState extends State<ProjectManagementScreen> {
                                         DataCell(Text(project.customer)),
                                         DataCell(Text(project.pm)),
                                         DataCell(_stageChip(project.stage)),
-                                        DataCell(SizedBox(
-                                          width: 92,
-                                          child: Row(children: [
-                                            Expanded(
-                                                child: LinearProgressIndicator(
-                                              value: project.progress / 100,
-                                              minHeight: 5,
-                                            )),
-                                            const SizedBox(width: 5),
-                                            Text('${project.progress}%'),
-                                          ]),
+                                        DataCell(_projectProgressWithSignals(
+                                          keyPrefix: 'project-summary-signal',
+                                          identifier: project.projectNumber,
+                                          stage: project.stage,
+                                          progress: project.progress,
+                                          urgent: project.urgent,
                                         )),
                                         DataCell(Text(project.dueDate)),
                                         DataCell(Row(children: [
@@ -734,6 +889,14 @@ class _ProjectManagementScreenState extends State<ProjectManagementScreen> {
                                         ])),
                                         DataCell(_statusChip(
                                             project.urgent ? '납기 위험' : '진행중')),
+                                        DataCell(Text(_scopedProjects
+                                            .firstWhere(
+                                              (row) =>
+                                                  row.projectNumber ==
+                                                  project.projectNumber,
+                                            )
+                                            .division
+                                            .label)),
                                       ],
                                     );
                                   }).toList(),
@@ -807,7 +970,7 @@ class _ProjectManagementScreenState extends State<ProjectManagementScreen> {
       return project.projectNumber.toLowerCase().contains(query) ||
           project.projectName.toLowerCase().contains(query) ||
           project.customer.toLowerCase().contains(query) ||
-          _projects.any((row) =>
+          _scopedProjects.any((row) =>
               row.projectNumber == project.projectNumber &&
               row.number.toLowerCase().contains(query));
     }).toList();
@@ -861,6 +1024,7 @@ class _ProjectManagementScreenState extends State<ProjectManagementScreen> {
                 final width =
                     (constraints.maxWidth - (columns - 1) * 8) / columns;
                 final items = [
+                  ('사업부', _selected.division.label),
                   ('수주번호', _selected.number),
                   ('수주명', _selected.orderName),
                   ('모델명', _selected.model),
@@ -912,55 +1076,103 @@ class _ProjectManagementScreenState extends State<ProjectManagementScreen> {
   Widget _buildStageSelector() => SizedBox(
         width: double.infinity,
         child: Wrap(
-          children: List.generate(_projectStages.length, (index) {
-            final selected = _selectedStageIndex == index;
-            return InkWell(
-              key: ValueKey('project-stage-tab-${_projectStages[index]}'),
-              onTap: () => setState(() => _selectedStageIndex = index),
-              child: Container(
-                width: 112,
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 18, vertical: 9),
-                decoration: BoxDecoration(
-                  color: selected ? RobinTheme.primary : Colors.transparent,
-                  border: Border(
-                    right: const BorderSide(color: RobinTheme.border),
-                    bottom: BorderSide(
-                        color:
-                            selected ? RobinTheme.primary : Colors.transparent,
-                        width: 2),
+          children: [
+            for (final index in [
+              0,
+              1,
+              2,
+              3,
+              4,
+              if (_selected.division == RobinBusinessDivision.platformModule) 6,
+              5
+            ])
+              Builder(builder: (_) {
+                final selected = _selectedStageIndex == index;
+                return InkWell(
+                  key: ValueKey(
+                      'project-stage-tab-${index == 6 ? 'Setup' : _projectStages[index]}'),
+                  onTap: () => setState(() => _selectedStageIndex = index),
+                  child: Container(
+                    width: 112,
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 18, vertical: 9),
+                    decoration: BoxDecoration(
+                      color: selected ? RobinTheme.primary : Colors.transparent,
+                      border: Border(
+                        right: const BorderSide(color: RobinTheme.border),
+                        bottom: BorderSide(
+                            color: selected
+                                ? RobinTheme.primary
+                                : Colors.transparent,
+                            width: 2),
+                      ),
+                    ),
+                    alignment: Alignment.center,
+                    child: Text(
+                      index == 6 ? 'Setup' : _projectStages[index],
+                      style: RobinTheme.bodySm.copyWith(
+                        color: selected ? Colors.white : RobinTheme.textPrimary,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
                   ),
-                ),
-                alignment: Alignment.center,
-                child: Text(
-                  _projectStages[index],
-                  style: RobinTheme.bodySm.copyWith(
-                    color: selected ? Colors.white : RobinTheme.textPrimary,
-                    fontWeight: FontWeight.w700,
-                  ),
-                ),
-              ),
-            );
-          }),
+                );
+              })
+          ],
         ),
       );
 
-  Widget _buildSelectedStagePanel() => switch (_selectedStageIndex) {
-        0 => _DesignPanel(project: _selected),
-        1 => _PurchasePanel(project: _selected, projects: _projects),
-        2 => _ProductionPanel(project: _selected, projects: _projects),
-        3 => _QualityPanel(project: _selected, projects: _projects),
-        4 => _LogisticsPanel(project: _selected, projects: _projects),
-        _ => _ClosingPanel(project: _selected, projects: _projects),
-      };
+  Widget _buildSelectedStagePanel() =>
+      Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Padding(
+            padding: const EdgeInsets.all(12),
+            child: Wrap(spacing: 8, runSpacing: 8, children: [
+              OrderWorkflowButton(
+                  recordKey: (_selected.division, _selected.number),
+                  projectName: _selected.projectName,
+                  section: switch (_selectedStageIndex) {
+                    0 => 'structure',
+                    1 => 'purchase',
+                    2 => _selected.division == RobinBusinessDivision.robot
+                        ? 'production'
+                        : 'schedule',
+                    3 => 'quality',
+                    4 => 'shipment',
+                    6 => 'setup',
+                    _ => 'closing'
+                  },
+                  label: '단계별 업무 상세'),
+              OrderWorkflowButton(
+                  recordKey: (_selected.division, _selected.number),
+                  projectName: _selected.projectName,
+                  section: 'changes',
+                  label: '수주 변경이력'),
+            ])),
+        if (_selectedStageIndex == 6)
+          const Padding(
+              padding: EdgeInsets.all(16),
+              child: Text(
+                  'Setup 일정·인원·공수·비용·이슈는 단계별 업무 상세에서 입력합니다. 업무종료·회계마감과 별도 관리합니다.'))
+        else
+          switch (_selectedStageIndex) {
+            0 => _DesignPanel(project: _selected, onOpenWork: _openDesignWork),
+            1 => _PurchasePanel(project: _selected, projects: _scopedProjects),
+            2 =>
+              _ProductionPanel(project: _selected, projects: _scopedProjects),
+            3 => _QualityPanel(project: _selected, projects: _scopedProjects),
+            4 => _LogisticsPanel(project: _selected, projects: _scopedProjects),
+            _ => _ClosingPanel(project: _selected, projects: _scopedProjects),
+          },
+      ]);
 
   List<_ProjectSummary> get _projectSummaries {
-    final numbers = _projects.map((row) => row.projectNumber).toSet();
+    final numbers = _scopedProjects.map((row) => row.projectNumber).toSet();
     return [
       for (final number in numbers)
         (() {
-          final rows =
-              _projects.where((row) => row.projectNumber == number).toList();
+          final rows = _scopedProjects
+              .where((row) => row.projectNumber == number)
+              .toList();
           final current = rows.reduce((a, b) =>
               _projectStages.indexOf(a.stage) >= _projectStages.indexOf(b.stage)
                   ? a
@@ -991,7 +1203,7 @@ class _ProjectManagementScreenState extends State<ProjectManagementScreen> {
     ];
   }
 
-  List<_ProjectRow> get _selectedProjectOrders => _projects
+  List<_ProjectRow> get _selectedProjectOrders => _scopedProjects
       .where((row) => row.projectNumber == _selectedProjectNumber)
       .toList();
 
@@ -1068,18 +1280,12 @@ class _ProjectManagementScreenState extends State<ProjectManagementScreen> {
                         DataCell(Text(row.changedDueDate == '-'
                             ? row.dueDate
                             : row.changedDueDate)),
-                        DataCell(SizedBox(
-                          width: 100,
-                          child: Row(children: [
-                            Expanded(
-                              child: LinearProgressIndicator(
-                                value: row.progress / 100,
-                                minHeight: 5,
-                              ),
-                            ),
-                            const SizedBox(width: 5),
-                            Text('${row.progress}%'),
-                          ]),
+                        DataCell(_projectProgressWithSignals(
+                          keyPrefix: 'project-order-signal',
+                          identifier: row.number,
+                          stage: row.stage,
+                          progress: row.progress,
+                          urgent: row.urgent,
                         )),
                         DataCell(_statusChip(row.closeStatus)),
                       ],
@@ -1096,7 +1302,8 @@ class _ProjectManagementScreenState extends State<ProjectManagementScreen> {
 
   Widget _buildDealerProgressScreen() {
     final department = robinUserProfile.value.department;
-    final rows = _projects.where((row) => row.channel == department).toList();
+    final rows =
+        _scopedProjects.where((row) => row.channel == department).toList();
     return Scaffold(
       backgroundColor: RobinTheme.background,
       appBar: const RobinAppBar(title: '진행단계 조회'),
@@ -1105,6 +1312,7 @@ class _ProjectManagementScreenState extends State<ProjectManagementScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
+            BusinessDivisionBar(scope: _scope),
             Text('진행단계 조회', style: RobinTheme.headingLg),
             const SizedBox(height: 4),
             Text('내 대리점의 수주 프로젝트 진행 상태를 읽기 전용으로 확인합니다.',
@@ -1212,6 +1420,7 @@ class _ProjectManagementScreenState extends State<ProjectManagementScreen> {
     for (final entry in result.newEntries) {
       addProjectTodo(
         ProjectTodoItem(
+          division: _selected.division,
           id: entry.id,
           orderNo: _selected.number,
           projectName: _selected.projectName,
@@ -1543,23 +1752,31 @@ class _ProjectMemoDialogState extends State<_ProjectMemoDialog> {
 
 class _DesignPanel extends StatelessWidget {
   final _ProjectRow project;
-  const _DesignPanel({required this.project});
+  final VoidCallback onOpenWork;
+  const _DesignPanel({required this.project, required this.onOpenWork});
 
   @override
   Widget build(BuildContext context) => _panel(
         title: '설계 현황 — ${project.number}',
-        action: const Chip(label: Text('Proposal 확정본 연계')),
-        child: const Column(
+        action: Wrap(spacing: 8, children: [
+          const Chip(label: Text('별도 입력·첨부 (임시 데이터)')),
+          if (canReadDesignWork)
+            OutlinedButton(onPressed: onOpenWork, child: const Text('설계 업무관리')),
+        ]),
+        child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            _StageInfoGrid(items: [
+            ProductIdentityPanel(
+                recordKey: (project.division, project.number),
+                projectModel: project.model),
+            const _StageInfoGrid(items: [
               ('설계 담당자', '이설계 책임'),
               ('설계 착수일', '2026-08-12'),
               ('도면 승인일', '2026-08-20'),
               ('설계 상태', '완료'),
             ]),
-            SizedBox(height: 12),
-            _CompactTable(
+            const SizedBox(height: 12),
+            const _CompactTable(
               headers: ['도면/문서', 'Revision', '상태', '최종일', '출처'],
               rows: [
                 [
@@ -1570,7 +1787,7 @@ class _DesignPanel extends StatelessWidget {
                   'Proposal'
                 ],
                 ['Spec_RS-N120.xlsx', 'Rev.05', '확정', '2026-08-20', 'ROBIN'],
-                ['Assembly_3D.step', 'Rev.02', '검토완료', '2026-08-21', 'PDM'],
+                ['Assembly_3D.step', 'Rev.02', '예시', '2026-08-21', '별도 첨부'],
               ],
             ),
           ],
@@ -1618,15 +1835,15 @@ class _PurchasePanel extends StatelessWidget {
                 '구매 진행상태'
               ],
               rows: [
-                ['B-001', '서보모터', '일반재고', '4', '재고', '-', '08-21', '입고완료'],
-                ['B-002', '감속기', '장기재고', '2', '확인', '08-29', '-', '확인 필요'],
+                ['B-001', '서보모터', '일반납재고', '4', '재고', '-', '08-21', '입고완료'],
+                ['B-002', '감속기', '장납기재고', '2', '확인', '08-29', '-', '확인 필요'],
                 ['B-003', '안전센서', '발주품', '8', '발주', '08-26', '-', '발주 완료'],
                 ['B-004', '제어반 부품', '사급품', '1', '사급', '08-22', '-', '입고 대기'],
-                ['B-005', '로봇 케이블', '일반재고', '4', '재고', '-', '08-20', '입고완료'],
+                ['B-005', '로봇 케이블', '일반납재고', '4', '재고', '-', '08-20', '입고완료'],
                 ['B-006', '안전펜스', '발주품', '12', '발주', '09-01', '-', '제작중'],
-                ['B-007', 'PLC 모듈', '일반재고', '2', '재고', '-', '08-21', '입고완료'],
+                ['B-007', 'PLC 모듈', '일반납재고', '2', '재고', '-', '08-21', '입고완료'],
                 ['B-008', '비전 카메라', '발주품', '2', '발주', '09-03', '-', '납기확인'],
-                ['B-009', '그리퍼 패드', '일반재고', '16', '재고', '-', '08-22', '입고완료'],
+                ['B-009', '그리퍼 패드', '일반납재고', '16', '재고', '-', '08-22', '입고완료'],
                 ['B-010', '공압 유닛', '발주품', '4', '발주', '08-30', '-', '발주 완료'],
               ],
             ),
@@ -1719,14 +1936,38 @@ class _QualityPanelState extends State<_QualityPanel> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            _StageInfoGrid(items: [
-              ('수주번호', widget.project.number),
-              ('도면번호', 'DWG-${widget.project.model}-B02'),
-              ('모델명', widget.project.model),
-              ('제품번호', 'PRD-${widget.project.number.substring(3)}-01'),
-              ('고객사', widget.project.customer),
-              ('현재 검사', _inspectionTitle(_selectedInspection)),
-            ]),
+            ValueListenableBuilder(
+                valueListenable: productIdentities,
+                builder: (context, _, child) => _StageInfoGrid(items: [
+                      ('수주번호', widget.project.number),
+                      (
+                        '도면번호',
+                        identityFor((
+                          widget.project.division,
+                          widget.project.number
+                        )).drawingNumber.isEmpty
+                            ? '미등록'
+                            : identityFor((
+                                widget.project.division,
+                                widget.project.number
+                              )).drawingNumber
+                      ),
+                      ('모델명', widget.project.model),
+                      (
+                        '제품번호',
+                        identityFor((
+                          widget.project.division,
+                          widget.project.number
+                        )).productNumber.isEmpty
+                            ? '미등록'
+                            : identityFor((
+                                widget.project.division,
+                                widget.project.number
+                              )).productNumber
+                      ),
+                      ('고객사', widget.project.customer),
+                      ('현재 검사', _inspectionTitle(_selectedInspection)),
+                    ])),
             const SizedBox(height: 12),
             Container(
               width: double.infinity,
@@ -2549,7 +2790,7 @@ class _PurchaseInputDialog extends StatefulWidget {
 }
 
 class _PurchaseInputDialogState extends State<_PurchaseInputDialog> {
-  String _inventoryType = '일반재고';
+  String _inventoryType = '일반납재고';
 
   @override
   Widget build(BuildContext context) => RobinAlertDialog(
@@ -2570,7 +2811,7 @@ class _PurchaseInputDialogState extends State<_PurchaseInputDialog> {
                 initialValue: _inventoryType,
                 decoration: const InputDecoration(
                     labelText: '재고 구분 인자', border: OutlineInputBorder()),
-                items: const ['일반재고', '장기재고', '발주품', '사급품']
+                items: const ['일반납재고', '장납기재고', '발주품', '사급품']
                     .map((item) =>
                         DropdownMenuItem(value: item, child: Text(item)))
                     .toList(),
@@ -2982,14 +3223,18 @@ class _CompactTable extends StatelessWidget {
 }
 
 class _OrderKpiGrid extends StatelessWidget {
-  const _OrderKpiGrid();
+  final List<_OrderRow> rows;
+  const _OrderKpiGrid({required this.rows});
 
-  static const _items = [
-    _OrderKpi('Assess', '12건', '18.4억원', '물동 3건 변경'),
-    _OrderKpi('Proposal', '8건', '13.1억원', '도면 5건 변경'),
-    _OrderKpi('Negotiation', '6건', '9.8억원', '결재 3건 대기'),
-    _OrderKpi('Closed Won', '4건', '7.2억원', 'ERP 확정 4건'),
-  ];
+  List<_OrderKpi> get _items => [
+        for (final stage in ['Assess', 'Proposal', 'Negotiation', 'Closed Won'])
+          _OrderKpi(
+            stage,
+            '${rows.where((r) => r.stage == stage).length}건',
+            '${_money(rows.where((r) => r.stage == stage).fold<double>(0, (sum, r) => sum + r.proposalPrice))}만원',
+            '현재 조회 사업부 기준',
+          ),
+      ];
 
   @override
   Widget build(BuildContext context) => LayoutBuilder(
@@ -3133,11 +3378,15 @@ class _ApprovalArrow extends StatelessWidget {
 }
 
 class _ProjectStageSummary extends StatelessWidget {
-  const _ProjectStageSummary();
+  final List<_ProjectRow> projects;
+  const _ProjectStageSummary({required this.projects});
   @override
   Widget build(BuildContext context) => LayoutBuilder(
         builder: (context, constraints) {
-          const counts = [15, 12, 9, 7, 5, 3];
+          final counts = [
+            for (final stage in _projectStages)
+              projects.where((row) => row.stage == stage).length
+          ];
           final columns = constraints.maxWidth >= 1050 ? 6 : 3;
           final width = (constraints.maxWidth - (columns - 1) * 8) / columns;
           return Wrap(
@@ -3204,14 +3453,18 @@ Widget _progressDot(_ProjectRow row, int index, int current) {
         color: done
             ? RobinTheme.signalGreen
             : active
-                ? RobinTheme.signalYellow
+                ? row.urgent
+                    ? RobinTheme.signalRed
+                    : RobinTheme.signalYellow
                 : RobinTheme.background,
         shape: BoxShape.circle,
         border: Border.all(
             color: done
                 ? RobinTheme.signalGreen
                 : active
-                    ? RobinTheme.signalYellow
+                    ? row.urgent
+                        ? RobinTheme.signalRed
+                        : RobinTheme.signalYellow
                     : RobinTheme.border),
       ),
       child: Icon(
@@ -3222,6 +3475,110 @@ Widget _progressDot(_ProjectRow row, int index, int current) {
                   : Icons.circle,
           size: 13,
           color: done || active ? Colors.white : RobinTheme.textMuted),
+    ),
+  );
+}
+
+Widget _projectProgressWithSignals({
+  required String keyPrefix,
+  required String identifier,
+  required String stage,
+  required int progress,
+  required bool urgent,
+}) {
+  final current =
+      _projectStages.indexOf(stage).clamp(0, _projectStages.length - 1);
+  final progressColor = urgent
+      ? RobinTheme.signalRed
+      : progress >= 100
+          ? RobinTheme.signalGreen
+          : RobinTheme.primary;
+
+  return SizedBox(
+    width: 176,
+    child: Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Row(
+          children: [
+            for (var index = 0; index < _projectStages.length; index++) ...[
+              _compactSignalDot(
+                keyPrefix: keyPrefix,
+                identifier: identifier,
+                index: index,
+                current: current,
+                progress: progress,
+                urgent: urgent,
+              ),
+              if (index < _projectStages.length - 1)
+                Expanded(
+                  child: Container(
+                    height: 2,
+                    color: index < current
+                        ? RobinTheme.signalGreen
+                        : RobinTheme.border,
+                  ),
+                ),
+            ],
+          ],
+        ),
+        const SizedBox(height: 4),
+        Row(
+          children: [
+            Expanded(
+              child: LinearProgressIndicator(
+                value: progress / 100,
+                minHeight: 5,
+                color: progressColor,
+                backgroundColor: RobinTheme.divider,
+              ),
+            ),
+            const SizedBox(width: 5),
+            Text('$progress%', style: RobinTheme.labelXs),
+          ],
+        ),
+      ],
+    ),
+  );
+}
+
+Widget _compactSignalDot({
+  required String keyPrefix,
+  required String identifier,
+  required int index,
+  required int current,
+  required int progress,
+  required bool urgent,
+}) {
+  final done = index < current || (index == current && progress >= 100);
+  final active = index == current && !done;
+  final color = done
+      ? RobinTheme.signalGreen
+      : active
+          ? urgent
+              ? RobinTheme.signalRed
+              : RobinTheme.signalYellow
+          : RobinTheme.border;
+  final status = done
+      ? '완료'
+      : active
+          ? urgent
+              ? '납기 위험'
+              : '진행 중'
+          : '대기';
+
+  return Tooltip(
+    key: ValueKey('$keyPrefix-$identifier-${_projectStages[index]}'),
+    message:
+        '${_projectStages[index]} · 담당자: ${_projectStageOwners[index]} · 상태: $status',
+    child: Container(
+      width: 11,
+      height: 11,
+      decoration: BoxDecoration(
+        color: color,
+        shape: BoxShape.circle,
+        border: Border.all(color: color),
+      ),
     ),
   );
 }
@@ -3332,6 +3689,7 @@ BoxDecoration _storyCard() => BoxDecoration(
     );
 
 class _OrderRow {
+  final RobinBusinessDivision division;
   final String number;
   final String customer;
   final String channel;
@@ -3359,7 +3717,8 @@ class _OrderRow {
       this.erpCost,
       this.approval,
       this.orderChanges,
-      this.specChanges);
+      this.specChanges,
+      {this.division = RobinBusinessDivision.robot});
 }
 
 List<_ProjectRow> _buildAdditionalProjectRows() {
@@ -3436,6 +3795,7 @@ List<_ProjectRow> _buildAdditionalProjectRows() {
 }
 
 class _ProjectRow {
+  final RobinBusinessDivision division;
   final String number;
   final String projectNumber;
   final String projectName;
@@ -3454,6 +3814,7 @@ class _ProjectRow {
   final String closeStatus;
 
   const _ProjectRow({
+    this.division = RobinBusinessDivision.robot,
     required this.number,
     required this.projectNumber,
     required this.projectName,

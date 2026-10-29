@@ -221,9 +221,9 @@ class RobinSidebar extends StatelessWidget {
             _MenuItem(Icons.view_timeline_outlined, '진행단계 조회', 3),
           ]
         : const [
-            _MenuItem(Icons.account_tree_outlined, '파이프라인 등록', 1, badge: '6'),
-            _MenuItem(Icons.request_quote_outlined, '수주관리', 2),
+            _MenuItem(Icons.account_tree_outlined, '파이프라인', 1),
             _MenuItem(Icons.view_timeline_outlined, '프로젝트 관리', 3),
+            _MenuItem(Icons.request_quote_outlined, '수주 현황·재료비', 2),
           ];
 
     return [

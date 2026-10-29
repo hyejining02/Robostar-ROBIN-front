@@ -1,15 +1,34 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
 
+import '../models/access_control.dart';
+import '../services/business_division_scope.dart';
 import '../services/desktop_file_service.dart';
+import '../services/product_identity_service.dart';
+import '../services/traffic_excel_service.dart';
+import '../services/robot_design_review_service.dart';
 import '../theme/robin_theme.dart';
 import '../utils/search_query.dart';
 import '../widgets/robin_dialog.dart';
 import '../widgets/user_profile.dart';
+import '../widgets/business_division_workspace.dart';
+import '../widgets/product_identity_panel.dart';
+import '../widgets/robot_design_review_panel.dart';
+import '../widgets/smart_order_specification_panel.dart';
+import '../widgets/robot_proposal_workspace.dart';
+import '../services/platform_pipeline_service.dart';
+import '../widgets/platform_assess_form.dart';
+import '../widgets/platform_proposal_form.dart';
+import '../widgets/platform_review_workspace.dart';
+import 'order_workflow_screen.dart';
 
 class PipelineRegistrationView extends StatefulWidget {
   final ValueChanged<int>? onNavigate;
+  final Future<({String name, List<int> bytes})?> Function()?
+      loadTrafficWorkbook;
 
-  const PipelineRegistrationView({super.key, this.onNavigate});
+  const PipelineRegistrationView(
+      {super.key, this.onNavigate, this.loadTrafficWorkbook});
 
   @override
   State<PipelineRegistrationView> createState() =>
@@ -17,26 +36,21 @@ class PipelineRegistrationView extends StatefulWidget {
 }
 
 class _PipelineRegistrationViewState extends State<PipelineRegistrationView> {
+  BusinessDivisionScope _scope = BusinessDivisionScope.current();
+  List<_PipelineLead> get _scopedLeads => [
+        for (final division in RobinBusinessDivision.values)
+          if (_scope.includes(division))
+            ..._leads.where((lead) => lead.division == division),
+      ];
   static const _stageNames = [
     'Assess',
     'Proposal',
     'Negotiation',
-    'Closed Won',
-    'Closed Lost',
-  ];
-  static const _stageDescriptions = [
-    '물동 · 등록가능',
-    '컨셉설계 · 등록가능',
-    '원가/결재 · 전환',
-    '수주 성공 · 조회',
-    '수주 실패 · 조회',
   ];
   static const _stageColors = [
     Color(0xFF2E7D32),
     Color(0xFF2563EB),
     Color(0xFFF57C00),
-    Color(0xFF64748B),
-    Color(0xFFC62828),
   ];
 
   final _searchController = TextEditingController();
@@ -45,10 +59,47 @@ class _PipelineRegistrationViewState extends State<PipelineRegistrationView> {
   final _strokeController = TextEditingController(text: '1000');
   final _orderPriceController = TextEditingController(text: '15,000,000');
   final _proposalMessageController = TextEditingController();
-  final _lostDetailController = TextEditingController();
   final _assessTableController = ScrollController();
 
   final List<_PipelineLead> _leads = [
+    const _PipelineLead(
+      division: RobinBusinessDivision.platformModule,
+      number: 'RB-2608-PL01',
+      project: '플랫폼 EFEM 모듈 구축',
+      customer: '플랫폼 고객사',
+      dealer: '본사 직판',
+      owner: '최플랫폼 책임',
+      stage: 0,
+      amount: 88000,
+      materialCost: 60000,
+      quantity: 2,
+      orderMonth: '2026-10',
+      arrivalMonth: '2026-12',
+      productType: 'EFEM',
+      destination: '국내',
+      endUser: '플랫폼 고객사',
+      orderChanges: 0,
+      specChanges: 0,
+    ),
+    const _PipelineLead(
+      division: RobinBusinessDivision.platformModule,
+      number: 'RB-2608-PL02',
+      project: '플랫폼 웨이퍼 이송 모듈',
+      customer: '모듈 고객사',
+      dealer: '본사 직판',
+      owner: '최플랫폼 책임',
+      stage: 1,
+      amount: 65000,
+      materialCost: 44000,
+      quantity: 1,
+      orderMonth: '2026-10',
+      arrivalMonth: '2026-12',
+      productType: '모듈',
+      destination: '국내',
+      endUser: '모듈 고객사',
+      orderChanges: 0,
+      specChanges: 0,
+    ),
     const _PipelineLead(
       number: 'RB-2608-021',
       project: 'LGD 베트남 EGL 3D wafer 세정기',
@@ -145,7 +196,8 @@ class _PipelineRegistrationViewState extends State<PipelineRegistrationView> {
       customer: 'B사',
       dealer: '본사 직판',
       owner: '김로빈 책임',
-      stage: 3,
+      stage: 2,
+      resultStatus: '수주 확정',
       amount: 72000,
       materialCost: 51800,
       quantity: 4,
@@ -165,7 +217,8 @@ class _PipelineRegistrationViewState extends State<PipelineRegistrationView> {
       customer: 'LG에너지솔루션',
       dealer: '지역대리점',
       owner: '금동연 책임',
-      stage: 4,
+      stage: 1,
+      resultStatus: '종료 이력',
       amount: 28900,
       materialCost: 17918,
       quantity: 1,
@@ -201,16 +254,59 @@ class _PipelineRegistrationViewState extends State<PipelineRegistrationView> {
 
   int _activeStage = 0;
   _PipelineLead? _selected;
-  String _overviewStageFilter = '전체 단계';
+  PlatformPipelineData? _platformDraft;
+  final _workspaceKey = GlobalKey();
+  String _overviewStageFilter = '전체 상태';
   String _customerFilter = '고객사';
   String _productGroup = 'linear';
   int _modelIndex = 0;
   int _payloadCost = 0;
   int _axisCost = 0;
   bool _evidenceAttached = false;
-  String _lostReason = '경쟁사 선점';
   final Set<String> _selectedOptions = {};
   final Map<String, _ProposalCollaborationData> _proposalCollaborations = {};
+
+  List<int> get _availableStages => [
+        if (_scope.includes(RobinBusinessDivision.platformModule)) 0,
+        1,
+        2,
+      ];
+
+  @override
+  void initState() {
+    super.initState();
+    for (final lead in _leads
+        .where((l) => l.division == RobinBusinessDivision.platformModule)) {
+      platformPipelineFor((lead.division, lead.number),
+          customer: lead.customer,
+          project: lead.project,
+          owner: lead.owner,
+          product: lead.productType,
+          quantity: lead.quantity);
+    }
+    _activeStage =
+        _scope.selected == RobinBusinessDivision.platformModule ? 0 : 1;
+    final initialRows = _scopedLeads
+        .where(
+            (lead) => lead.stage == _activeStage && lead.resultStatus == null)
+        .toList();
+    _selected = initialRows.isEmpty ? null : initialRows.first;
+    // Preserve legacy robot traffic records as Proposal, not an Assess stage.
+    for (var i = 0; i < _leads.length; i++) {
+      final lead = _leads[i];
+      if (lead.division == RobinBusinessDivision.robot && lead.stage == 0) {
+        _leads[i] = lead.copyWith(stage: 1);
+        _histories.add(_PipelineHistory(
+          number: lead.number,
+          at: _now(),
+          user: robinUserProfile.value.name,
+          from: '기존 물동',
+          to: 'Proposal',
+          note: '로봇사업부 단계 정리에 따라 기존 물동 정보를 보존하여 이관',
+        ));
+      }
+    }
+  }
 
   static const _models = {
     'linear': [
@@ -247,42 +343,86 @@ class _PipelineRegistrationViewState extends State<PipelineRegistrationView> {
     _strokeController.dispose();
     _orderPriceController.dispose();
     _proposalMessageController.dispose();
-    _lostDetailController.dispose();
     _assessTableController.dispose();
     super.dispose();
   }
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context) => BusinessDivisionWorkspace(
+        builder: (context, scope) {
+          final divisionChanged = _scope.selected != scope.selected;
+          _scope = scope;
+          if (divisionChanged) {
+            _platformDraft = null;
+            _activeStage =
+                scope.selected == RobinBusinessDivision.robot ? 1 : 0;
+            _overviewStageFilter = '전체 상태';
+            final rows = _scopedLeads
+                .where((lead) =>
+                    lead.stage == _activeStage && lead.resultStatus == null)
+                .toList();
+            _selected = rows.isEmpty ? null : rows.first;
+          }
+          if (_selected != null && !_scopedLeads.contains(_selected)) {
+            _selected = null;
+          }
+          if (_customerFilter != '고객사' &&
+              !_scopedLeads.any((lead) => lead.customer == _customerFilter)) {
+            _customerFilter = '고객사';
+          }
+          return _buildScopedContent(context);
+        },
+      );
+
+  Widget _buildScopedContent(BuildContext context) {
+    if (_scope.allowed.isEmpty) return BusinessDivisionBar(scope: _scope);
     if (robinUserProfile.value.isDealer) return _buildDealerWorkspace();
     return SingleChildScrollView(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          BusinessDivisionBar(scope: _scope),
           _buildIntro(),
           const SizedBox(height: 10),
-          _buildStageStrip(),
-          const SizedBox(height: 8),
           _buildFilters(),
           const SizedBox(height: 8),
           _buildPipelineOverview(),
           const SizedBox(height: 8),
           LayoutBuilder(
             builder: (context, constraints) {
-              final activeWorkspace = _activeStage == 0
+              final activeWorkspace = _platformDraft == null &&
+                      _activeStage == 0 &&
+                      _selected?.division !=
+                          RobinBusinessDivision.platformModule
                   ? SizedBox(height: 560, child: _buildActiveWorkspace())
                   : _buildActiveWorkspace();
               final workspace = Container(
+                key: _workspaceKey,
                 decoration: _cardDecoration(),
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    _buildWorkspaceTabs(),
+                    _buildWorkspaceHeader(),
                     const Divider(height: 1),
                     activeWorkspace,
                   ],
                 ),
               );
+              if (_platformDraft != null ||
+                  _selected?.division == RobinBusinessDivision.platformModule) {
+                return Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      workspace,
+                      const SizedBox(height: 10),
+                      ExpansionTile(
+                          key: const ValueKey('platform-pipeline-history'),
+                          title: const Text('단계 변경 이력'),
+                          children: [
+                            SizedBox(height: 320, child: _buildHistoryPanel())
+                          ]),
+                    ]);
+              }
               if (constraints.maxWidth < 1380) return workspace;
               return Row(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -306,12 +446,13 @@ class _PipelineRegistrationViewState extends State<PipelineRegistrationView> {
 
   Widget _buildDealerWorkspace() {
     final department = robinUserProfile.value.department;
-    final rows = _leads
+    final rows = _scopedLeads
         .where((lead) => lead.stage == 1 && lead.dealer == department)
         .toList();
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
+        BusinessDivisionBar(scope: _scope),
         Text('컨셉도면 송수신', style: RobinTheme.headingLg),
         const SizedBox(height: 4),
         Text(
@@ -379,10 +520,10 @@ class _PipelineRegistrationViewState extends State<PipelineRegistrationView> {
           final title = Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text('파이프라인 등록', style: RobinTheme.headingLg),
+              Text('파이프라인', style: RobinTheme.headingLg),
               const SizedBox(height: 4),
               Text(
-                '전체 수주를 선택한 뒤 Assess → Proposal → Negotiation → Closed Won/Lost 흐름으로 등록·전환합니다.',
+                '목록의 상태를 확인하고 수주를 선택하면 해당 수주의 입력·상세 화면이 열립니다.',
                 style: RobinTheme.bodySm,
               ),
             ],
@@ -391,16 +532,8 @@ class _PipelineRegistrationViewState extends State<PipelineRegistrationView> {
             spacing: 8,
             runSpacing: 8,
             children: [
-              OutlinedButton.icon(
-                onPressed: () => setState(() => _activeStage = 0),
-                icon: const Icon(Icons.edit_note_outlined, size: 18),
-                label: const Text('단계별 입력'),
-              ),
               FilledButton.icon(
-                onPressed: _activeStage <= 1
-                    ? _registerPipeline
-                    : () =>
-                        _message('신규 수주는 Assess 또는 Proposal에서만 등록할 수 있습니다.'),
+                onPressed: _registerPipeline,
                 icon: const Icon(Icons.add, size: 18),
                 label: const Text('신규 수주 등록'),
               ),
@@ -435,7 +568,9 @@ class _PipelineRegistrationViewState extends State<PipelineRegistrationView> {
                       color: RobinTheme.primary.withValues(alpha: .24)),
                 ),
                 child: Text(
-                  '등록 원칙 · 신규 수주는 Assess 또는 Proposal에서만 생성합니다. Negotiation과 Closed Won/Lost는 기존 수주의 단계 전환·조회·이력 관리 화면입니다.',
+                  _scope.selected == RobinBusinessDivision.robot
+                      ? '로봇사업부 · Proposal(컨셉 설계) → Negotiation(수주 입력) · 목록 선택 후 단계 변경'
+                      : '목록 선택 후 단계 변경 · 로봇: Proposal/Negotiation · 플랫폼: Assess/Proposal/Negotiation',
                   style: RobinTheme.labelXs.copyWith(
                     color: RobinTheme.primary,
                     fontWeight: FontWeight.w600,
@@ -445,85 +580,6 @@ class _PipelineRegistrationViewState extends State<PipelineRegistrationView> {
             ],
           );
         },
-      );
-
-  Widget _buildStageStrip() => SizedBox(
-        height: 88,
-        child: ListView.separated(
-          scrollDirection: Axis.horizontal,
-          itemCount: _stageNames.length,
-          separatorBuilder: (_, __) => const SizedBox(width: 8),
-          itemBuilder: (context, index) {
-            final rows = _leads.where((lead) => lead.stage == index).toList();
-            final amount =
-                rows.fold<double>(0, (sum, lead) => sum + lead.amount);
-            final orders =
-                rows.fold<int>(0, (sum, lead) => sum + lead.orderChanges);
-            final specs =
-                rows.fold<int>(0, (sum, lead) => sum + lead.specChanges);
-            final active = _activeStage == index;
-            return InkWell(
-              key: ValueKey('pipeline-stage-$index'),
-              onTap: () => setState(() => _activeStage = index),
-              borderRadius: BorderRadius.circular(9),
-              child: AnimatedContainer(
-                duration: const Duration(milliseconds: 160),
-                width: 206,
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-                decoration: BoxDecoration(
-                  color: active
-                      ? _stageColors[index].withValues(alpha: .07)
-                      : RobinTheme.surface,
-                  borderRadius: BorderRadius.circular(9),
-                  border: Border.all(
-                    color: active ? _stageColors[index] : RobinTheme.border,
-                    width: active ? 1.5 : 1,
-                  ),
-                ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      children: [
-                        Icon(
-                          index < 3
-                              ? Icons.check_circle_outline
-                              : Icons.flag_outlined,
-                          size: 17,
-                          color: _stageColors[index],
-                        ),
-                        const SizedBox(width: 6),
-                        Expanded(
-                          child: Text(_stageNames[index],
-                              style: RobinTheme.headingSm
-                                  .copyWith(color: _stageColors[index])),
-                        ),
-                        Text('${rows.length}건', style: RobinTheme.headingSm),
-                      ],
-                    ),
-                    const Spacer(),
-                    Row(
-                      children: [
-                        Expanded(
-                          child: Text(_stageDescriptions[index],
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: RobinTheme.labelXs),
-                        ),
-                        Text(
-                          '${_compactMoney(amount)} · 변경 ${orders + specs}',
-                          style: RobinTheme.labelXs
-                              .copyWith(color: RobinTheme.textSecondary),
-                        ),
-                      ],
-                    ),
-                  ],
-                ),
-              ),
-            );
-          },
-        ),
       );
 
   Widget _buildPipelineOverview() {
@@ -559,7 +615,10 @@ class _PipelineRegistrationViewState extends State<PipelineRegistrationView> {
                                 Text('프로젝트 / 고객사', style: RobinTheme.labelXs)),
                         SizedBox(
                             width: 96,
-                            child: Text('단계', style: RobinTheme.labelXs)),
+                            child: Text('상태',
+                                key: const ValueKey(
+                                    'pipeline-list-status-header'),
+                                style: RobinTheme.labelXs)),
                         SizedBox(
                             width: 86,
                             child: Text('예상금액', style: RobinTheme.labelXs)),
@@ -582,6 +641,7 @@ class _PipelineRegistrationViewState extends State<PipelineRegistrationView> {
                         return InkWell(
                           key: ValueKey('pipeline-overview-${lead.number}'),
                           onTap: () => setState(() {
+                            _platformDraft = null;
                             _selected = lead;
                             _activeStage = lead.stage;
                           }),
@@ -603,14 +663,17 @@ class _PipelineRegistrationViewState extends State<PipelineRegistrationView> {
                                 Expanded(
                                   flex: 3,
                                   child: Text(
-                                      '${lead.project} · ${lead.customer}',
+                                      '${lead.project} · ${lead.customer} · ${lead.division.label}',
                                       maxLines: 1,
                                       overflow: TextOverflow.ellipsis,
                                       style: RobinTheme.bodySm),
                                 ),
                                 SizedBox(
                                     width: 96,
-                                    child: _stageBadgeCompact(lead.stage)),
+                                    child: lead.resultStatus == null
+                                        ? _stageBadgeCompact(lead.stage)
+                                        : Text(lead.resultStatus!,
+                                            style: RobinTheme.bodySm)),
                                 SizedBox(
                                     width: 86,
                                     child: Text(_compactMoney(lead.amount),
@@ -709,7 +772,7 @@ class _PipelineRegistrationViewState extends State<PipelineRegistrationView> {
       );
 
   Widget _buildFilters() {
-    final customers = _leads.map((lead) => lead.customer).toSet().toList()
+    final customers = _scopedLeads.map((lead) => lead.customer).toSet().toList()
       ..sort();
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 8),
@@ -735,7 +798,10 @@ class _PipelineRegistrationViewState extends State<PipelineRegistrationView> {
                     border: OutlineInputBorder(),
                     isDense: true,
                   ),
-                  items: ['전체 단계', ..._stageNames]
+                  items: [
+                    '전체 상태',
+                    ..._availableStages.map((stage) => _stageNames[stage])
+                  ]
                       .map((item) =>
                           DropdownMenuItem(value: item, child: Text(item)))
                       .toList(),
@@ -744,7 +810,11 @@ class _PipelineRegistrationViewState extends State<PipelineRegistrationView> {
                     setState(() {
                       _overviewStageFilter = value;
                       final stage = _stageNames.indexOf(value);
+                      _platformDraft = null;
                       if (stage >= 0) _activeStage = stage;
+                      final rows = _filteredLeads;
+                      _selected = rows.isEmpty ? null : rows.first;
+                      if (_selected != null) _activeStage = _selected!.stage;
                     });
                   },
                 ),
@@ -787,45 +857,162 @@ class _PipelineRegistrationViewState extends State<PipelineRegistrationView> {
     );
   }
 
-  Widget _buildWorkspaceTabs() => SizedBox(
-        height: 52,
-        child: ListView(
-          scrollDirection: Axis.horizontal,
-          padding: const EdgeInsets.symmetric(horizontal: 8),
-          children: [
-            for (var index = 0; index < _stageNames.length; index++)
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 2, vertical: 7),
-                child: TextButton(
-                  onPressed: () => setState(() => _activeStage = index),
-                  style: TextButton.styleFrom(
-                    foregroundColor: _activeStage == index
-                        ? _stageColors[index]
-                        : RobinTheme.textSecondary,
-                    backgroundColor: _activeStage == index
-                        ? _stageColors[index].withValues(alpha: .08)
-                        : Colors.transparent,
-                  ),
-                  child: Text(index == 0
-                      ? 'Assess · 물동 · 등록가능'
-                      : index == 1
-                          ? 'Proposal · 컨셉설계 · 등록가능'
-                          : index == 2
-                              ? 'Negotiation · 원가/결재 · 전환'
-                              : '${_stageNames[index]} · 조회'),
-                ),
-              ),
-          ],
-        ),
+  Widget _buildWorkspaceHeader() => Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+        child: Row(children: [
+          Expanded(
+              child: Text(
+            _platformDraft != null
+                ? '신규 수주 등록 · Assess · ${_platformDraft!.key.$2}'
+                : _selected == null
+                    ? '수주 입력·상세 · 목록에서 수주를 선택하세요.'
+                    : '수주 입력·상세 · ${_selected!.number}',
+            key: const ValueKey('pipeline-workspace-header'),
+            style: RobinTheme.headingSm,
+          )),
+          const SizedBox(width: 8),
+          if (_platformDraft != null)
+            TextButton(
+                onPressed: () => setState(() {
+                      _platformDraft = null;
+                      final rows = _scopedLeads
+                          .where((lead) =>
+                              lead.division ==
+                                  RobinBusinessDivision.platformModule &&
+                              lead.stage == 0 &&
+                              lead.resultStatus == null)
+                          .toList();
+                      _selected = rows.isEmpty ? null : rows.first;
+                    }),
+                child: const Text('등록 취소')),
+          OutlinedButton.icon(
+            key: const ValueKey('pipeline-change-stage'),
+            onPressed: _selected == null || _selected!.resultStatus != null
+                ? null
+                : () => _showStageChangeDialog(_selected!),
+            icon: const Icon(Icons.swap_horiz, size: 17),
+            label: const Text('단계 변경'),
+          ),
+        ]),
       );
 
-  Widget _buildActiveWorkspace() => switch (_activeStage) {
-        0 => _buildAssessWorkspace(),
-        1 => _buildProposalWorkspace(),
-        2 => _buildNegotiationWorkspace(),
-        3 => _buildClosedWonWorkspace(),
-        _ => _buildClosedLostWorkspace(),
-      };
+  Widget _buildActiveWorkspace() {
+    final draft = _platformDraft;
+    if (draft != null) {
+      return Padding(
+          padding: const EdgeInsets.all(12),
+          child: PlatformAssessForm(
+              key: ValueKey('platform-assess-form-${draft.key.$2}'),
+              data: draft,
+              onSaved: () => _saveNewPlatform(draft),
+              onAdvance: (stage) => _advancePlatform(draft.key.$2, stage),
+              onDesignReview: () => _openPlatformReview(draft)));
+    }
+    if (_selected?.resultStatus != null) {
+      final lead = _selected!;
+      return Padding(
+        padding: const EdgeInsets.all(14),
+        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Text('${lead.resultStatus} · 기존 기록', style: RobinTheme.headingSm),
+          const SizedBox(height: 8),
+          Text('${lead.number} · ${lead.project} · ${lead.customer}'),
+          if (lead.erpOrderNumber != null)
+            Text('ERP 수주번호: ${lead.erpOrderNumber}'),
+          if (lead.dropReason != null) Text('기존 사유: ${lead.dropReason}'),
+          const SizedBox(height: 8),
+          const Text('기존 종료 건은 단계가 아닌 조회 기록으로 보존합니다. 신규 단계 선택에는 포함하지 않습니다.'),
+        ]),
+      );
+    }
+    final lead = _selected;
+    if (lead != null &&
+        lead.division == RobinBusinessDivision.platformModule &&
+        _activeStage < 2) {
+      final data = platformPipelineFor((lead.division, lead.number),
+          customer: lead.customer,
+          project: lead.project,
+          owner: lead.owner,
+          product: lead.productType,
+          quantity: lead.quantity);
+      return Padding(
+          padding: const EdgeInsets.all(12),
+          child:
+              Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            if (_activeStage == 0)
+              PlatformAssessForm(
+                  key: ValueKey('platform-assess-form-${lead.number}'),
+                  data: data,
+                  onSaved: () => _syncPlatformLead(lead.number, data),
+                  onAdvance: (stage) => _advancePlatform(lead.number, stage),
+                  onDesignReview: () => _openPlatformReview(data))
+            else
+              PlatformProposalForm(
+                  key: ValueKey('platform-proposal-form-${lead.number}'),
+                  data: data,
+                  onSaved: () => _syncPlatformLead(lead.number, data),
+                  onAdvance: (stage) => _advancePlatform(lead.number, stage),
+                  onDesignReview: () => _openPlatformReview(data)),
+            if (_activeStage == 0)
+              ExpansionTile(
+                  key: const ValueKey('platform-legacy-traffic'),
+                  title: const Text('기존 물동 Excel · ERP 번호 매칭'),
+                  children: [
+                    SizedBox(height: 560, child: _buildAssessWorkspace())
+                  ]),
+          ]));
+    }
+    return switch (_activeStage) {
+      1 => _buildProposalWorkspace(),
+      2 => _buildNegotiationWorkspace(),
+      _ => _buildAssessWorkspace(),
+    };
+  }
+
+  void _syncPlatformLead(String number, PlatformPipelineData data) {
+    final index = _leads.indexWhere((l) => l.number == number);
+    if (index < 0) return;
+    setState(() {
+      final old = _leads[index];
+      final updated = old.copyWith(
+          project: data.projectName,
+          customer: data.assess['customer'],
+          amount: data.revenue == null ? null : data.revenue! / 10000,
+          materialCost:
+              data.materialTotal == null ? null : data.materialTotal! / 10000,
+          quantity: data.equipment.values.fold<int>(0, (a, b) => a + b));
+      _leads[index] = updated;
+      if (_selected?.number == number) _selected = updated;
+    });
+  }
+
+  Future<bool> _advancePlatform(String number, int stage) async {
+    final lead = _leads.firstWhere((l) => l.number == number);
+    await _changeStage(lead, stage);
+    return _leads.firstWhere((l) => l.number == number).stage == stage;
+  }
+
+  void _openPlatformReview(PlatformPipelineData data) => showDialog<void>(
+      context: context,
+      builder: (context) => Dialog(
+          backgroundColor: Colors.white,
+          insetPadding: const EdgeInsets.all(20),
+          child: SizedBox(
+              width: 1200,
+              height: MediaQuery.sizeOf(context).height * .9,
+              child: Column(children: [
+                ListTile(
+                    title: const Text('설계 검토 의뢰 · 재료비 / Layout'),
+                    subtitle: Text('${data.key.$2} · ${data.projectName}'),
+                    trailing: IconButton(
+                        tooltip: '설계 검토 닫기',
+                        onPressed: () => Navigator.pop(context),
+                        icon: const Icon(Icons.close))),
+                const Divider(height: 1),
+                Expanded(
+                    child: SingleChildScrollView(
+                        padding: const EdgeInsets.all(12),
+                        child: PlatformDesignReviewPanel(data: data))),
+              ]))));
 
   Widget _buildAssessWorkspace() => Column(
         children: [
@@ -835,7 +1022,7 @@ class _PipelineRegistrationViewState extends State<PipelineRegistrationView> {
               children: [
                 Expanded(
                   child: Text(
-                    '월 단위 물동 Excel을 업로드하면 가번호가 자동 발행됩니다. B0~M 가능성을 확인하고 Proposal로 연결합니다.',
+                    '기존 47열 .xlsx · 매출액/재료비는 백만원, 목록은 만원 · 검증 후 신규 건만 임시 채번 · 현재 세션 저장',
                     style: RobinTheme.bodySm,
                   ),
                 ),
@@ -908,6 +1095,7 @@ class _PipelineRegistrationViewState extends State<PipelineRegistrationView> {
                           DataColumn(label: _pipelineTableText(58, '업로드월')),
                           DataColumn(label: _pipelineTableText(62, '상태')),
                           DataColumn(label: _pipelineTableText(48, '상세')),
+                          DataColumn(label: _pipelineTableText(130, '사업부')),
                         ],
                         rows: _filteredForStage.map((lead) {
                           final selected = _selected?.number == lead.number;
@@ -959,6 +1147,8 @@ class _PipelineRegistrationViewState extends State<PipelineRegistrationView> {
                                   icon: const Icon(Icons.open_in_new, size: 18),
                                 ),
                               ),
+                              DataCell(
+                                  _pipelineTableText(130, lead.division.label)),
                             ],
                           );
                         }).toList(),
@@ -1098,11 +1288,13 @@ class _PipelineRegistrationViewState extends State<PipelineRegistrationView> {
         Row(
           mainAxisAlignment: MainAxisAlignment.end,
           children: [
-            OutlinedButton(
-              onPressed: () => setState(() => _activeStage = 0),
-              child: const Text('← 이전'),
-            ),
-            const SizedBox(width: 7),
+            if (lead.division == RobinBusinessDivision.platformModule) ...[
+              OutlinedButton(
+                onPressed: () => _changeStage(lead, 0),
+                child: const Text('Assess로 단계 변경'),
+              ),
+              const SizedBox(width: 7),
+            ],
             OutlinedButton(
               onPressed: () => _message('Proposal 입력 내용을 임시 저장했습니다.'),
               child: const Text('임시 저장'),
@@ -1121,129 +1313,232 @@ class _PipelineRegistrationViewState extends State<PipelineRegistrationView> {
 
   Widget _buildProposalEditor(
       _PipelineLead lead, _ProposalCollaborationData collaboration) {
-    return Column(
-      children: [
-        Container(
-          padding: const EdgeInsets.all(13),
-          decoration: _softPanel(),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text('Proposal · 컨셉도면 대응 · 제안서 전달', style: RobinTheme.headingSm),
-              const SizedBox(height: 10),
-              Wrap(
-                spacing: 8,
-                runSpacing: 8,
-                children: [
-                  _proposalField('고객사명', lead.customer),
-                  _proposalField('프로젝트명', lead.project),
-                  _proposalField('제품 구분', lead.productType),
-                  _proposalField('예상 금액(만원)', _money(lead.amount)),
-                  _proposalField('희망 납기일', lead.arrivalMonth),
-                  _proposalField('설치 장소', lead.destination),
-                ],
-              ),
-              const SizedBox(height: 10),
-              const TextField(
-                maxLines: 2,
-                decoration: InputDecoration(
-                  labelText: '제안 내용 요약',
-                  hintText: '솔루션 제안 요점과 고객 요구사항을 입력하세요.',
-                  border: OutlineInputBorder(),
-                  isDense: true,
-                ),
-              ),
-              const SizedBox(height: 12),
+    return ValueListenableBuilder(
+      valueListenable: robotDesignReviews,
+      builder: (context, _, child) {
+        final identityKey = (lead.division, lead.number);
+        final specification = proposalSpecifications.value[identityKey] ??
+            const ProductSpecification();
+        return Column(
+          children: [
+            ProductIdentityPanel(recordKey: identityKey),
+            if (lead.division == RobinBusinessDivision.robot)
+              RobotProposalWorkspace(
+                key: ValueKey('robot-proposal-workspace-${lead.number}'),
+                recordKey: identityKey,
+                project: lead.project,
+                customer: lead.customer,
+              )
+            else
               Container(
-                padding: const EdgeInsets.all(11),
-                decoration: BoxDecoration(
-                  color: RobinTheme.signalGreen.withValues(alpha: .045),
-                  borderRadius: BorderRadius.circular(8),
-                  border: Border.all(
-                      color: RobinTheme.signalGreen.withValues(alpha: .38)),
-                ),
+                padding: const EdgeInsets.all(13),
+                decoration: _softPanel(),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Row(
-                      children: [
-                        Expanded(
-                          child: Text('컨셉도면 사양 입력',
-                              style: RobinTheme.headingSm
-                                  .copyWith(color: RobinTheme.signalGreen)),
-                        ),
-                        const Chip(label: Text('Proposal 필수')),
-                      ],
-                    ),
-                    const SizedBox(height: 7),
+                    Text('Proposal · 컨셉도면 대응 · 제안서 전달',
+                        style: RobinTheme.headingSm),
+                    const SizedBox(height: 10),
                     Wrap(
                       spacing: 8,
                       runSpacing: 8,
                       children: [
-                        _proposalField('모델명', 'GRP-VAC-40', compact: true),
-                        _proposalField('축 수', '6축', compact: true),
-                        _proposalField('가반하중', '120 kg', compact: true),
-                        _proposalField('최대 Reach', '2,650 mm', compact: true),
-                        _proposalField('설치 방식', '바닥 설치', compact: true),
-                        _proposalField('반복정밀도', '±0.05 mm', compact: true),
-                        _proposalField('그리퍼 타입', '진공 그리퍼', compact: true),
-                        _proposalField('제품 중량', '38 kg', compact: true),
-                        _proposalField('제품 크기', '850×620×420', compact: true),
-                        _proposalField('케이블 방향', '우측', compact: true),
-                        _proposalField('안전 옵션', '라이트커튼', compact: true),
-                        _proposalField('컨트롤러/통신', 'RCX-500', compact: true),
+                        _proposalField('고객사명', lead.customer),
+                        _proposalField('프로젝트명', lead.project),
+                        _proposalField('제품 구분', lead.productType),
+                        _proposalField('예상 금액(만원)', _money(lead.amount)),
+                        _proposalField('희망 납기일', lead.arrivalMonth),
+                        _proposalField('설치 장소', lead.destination),
                       ],
                     ),
+                    const SizedBox(height: 10),
+                    const TextField(
+                      maxLines: 2,
+                      decoration: InputDecoration(
+                        labelText: '제안 내용 요약',
+                        hintText: '솔루션 제안 요점과 고객 요구사항을 입력하세요.',
+                        border: OutlineInputBorder(),
+                        isDense: true,
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    if (lead.division == RobinBusinessDivision.robot)
+                      SmartOrderSpecificationPanel(
+                        key: ValueKey(
+                            'smartorder-${lead.number}-${robotReviewFor(identityKey).version}'),
+                        recordKey: identityKey,
+                      )
+                    else
+                      Container(
+                        padding: const EdgeInsets.all(11),
+                        decoration: BoxDecoration(
+                          color: RobinTheme.signalGreen.withValues(alpha: .045),
+                          borderRadius: BorderRadius.circular(8),
+                          border: Border.all(
+                              color: RobinTheme.signalGreen
+                                  .withValues(alpha: .38)),
+                        ),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Row(
+                              children: [
+                                Expanded(
+                                  child: Text('컨셉도면 사양 입력',
+                                      style: RobinTheme.headingSm.copyWith(
+                                          color: RobinTheme.signalGreen)),
+                                ),
+                                const Chip(label: Text('Proposal 필수')),
+                              ],
+                            ),
+                            const SizedBox(height: 7),
+                            KeyedSubtree(
+                              key: ValueKey(
+                                  'proposal-source-${lead.number}-${robotReviewFor(identityKey).version}'),
+                              child: Wrap(
+                                spacing: 8,
+                                runSpacing: 8,
+                                children: [
+                                  _proposalField('모델명', specification.model,
+                                      compact: true,
+                                      fieldKey: ValueKey(
+                                          'proposal-model-${lead.number}'),
+                                      onChanged: (value) =>
+                                          updateProposalSpecification(
+                                              identityKey, 'model', value)),
+                                  _proposalField(
+                                      'Stroke(mm)', specification.stroke,
+                                      compact: true,
+                                      fieldKey: ValueKey(
+                                          'proposal-stroke-${lead.number}'),
+                                      onChanged: (value) =>
+                                          updateProposalSpecification(
+                                              identityKey, 'stroke', value)),
+                                  _proposalField(
+                                      '모터 방향', specification.motorDirection,
+                                      compact: true,
+                                      fieldKey: ValueKey(
+                                          'proposal-motor-${lead.number}'),
+                                      onChanged: (value) =>
+                                          updateProposalSpecification(
+                                              identityKey, 'motor', value)),
+                                  _proposalField(
+                                      '센서 방향', specification.sensorDirection,
+                                      compact: true,
+                                      fieldKey: ValueKey(
+                                          'proposal-sensor-${lead.number}'),
+                                      onChanged: (value) =>
+                                          updateProposalSpecification(
+                                              identityKey, 'sensor', value)),
+                                  if (lead.division !=
+                                      RobinBusinessDivision.robot) ...[
+                                    _proposalField('축 수', '6축', compact: true),
+                                    _proposalField('가반하중', '120 kg',
+                                        compact: true),
+                                    _proposalField('최대 Reach', '2,650 mm',
+                                        compact: true),
+                                    _proposalField('설치 방식', '바닥 설치',
+                                        compact: true),
+                                    _proposalField('반복정밀도', '±0.05 mm',
+                                        compact: true),
+                                    _proposalField('그리퍼 타입', '진공 그리퍼',
+                                        compact: true),
+                                    _proposalField('제품 중량', '38 kg',
+                                        compact: true),
+                                    _proposalField('제품 크기', '850×620×420',
+                                        compact: true),
+                                    _proposalField('케이블 방향', '우측',
+                                        compact: true),
+                                    _proposalField('안전 옵션', '라이트커튼',
+                                        compact: true),
+                                    _proposalField('컨트롤러/통신', 'RCX-500',
+                                        compact: true),
+                                  ],
+                                ],
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
                   ],
                 ),
               ),
-            ],
-          ),
-        ),
-        const SizedBox(height: 10),
-        Container(
-          padding: const EdgeInsets.all(12),
-          decoration: _softPanel(),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                children: [
-                  Expanded(
-                    child:
-                        Text('컨셉도면 업로드 · 버전 이력', style: RobinTheme.headingSm),
-                  ),
-                  OutlinedButton.icon(
-                    key: ValueKey('proposal-collaboration-${lead.number}'),
-                    onPressed: () => _showProposalCollaboration(lead),
-                    icon: const Icon(Icons.upload_file_outlined, size: 17),
-                    label: const Text('도면·파일 관리'),
-                  ),
+            const SizedBox(height: 10),
+            if (lead.division == RobinBusinessDivision.robot) ...[
+              RobotDesignReviewPanel(
+                key: ValueKey('robot-design-review-${lead.number}'),
+                recordKey: (lead.division, lead.number),
+                projectName: lead.project,
+                customer: lead.customer,
+                owner: lead.owner,
+                proposalSummary: () => robotProposalReviewSummary(identityKey),
+                drawings: [
+                  for (final doc in collaboration.documents)
+                    if (doc.type == '컨셉 도면')
+                      ReviewDrawing(
+                          id: 'collaboration:${doc.fileName}:${doc.revision}',
+                          fileName: doc.fileName,
+                          number: identityFor((lead.division, lead.number))
+                              .drawingNumber,
+                          revision: doc.revision,
+                          demo: true)
                 ],
               ),
-              const SizedBox(height: 8),
-              for (var index = collaboration.documents.length - 1;
-                  index >= 0;
-                  index--)
-                _proposalDocumentRow(
-                  collaboration.documents[index],
-                  latest: index == collaboration.documents.length - 1,
-                ),
-              const SizedBox(height: 6),
-              Text('최신 확정 사양은 Negotiation 단계로 자동 승계됩니다.',
-                  style: RobinTheme.labelXs),
+              const SizedBox(height: 10),
             ],
-          ),
-        ),
-      ],
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: _softPanel(),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Text('컨셉도면 업로드 · 버전 이력',
+                            style: RobinTheme.headingSm),
+                      ),
+                      OutlinedButton.icon(
+                        key: ValueKey('proposal-collaboration-${lead.number}'),
+                        onPressed: () => _showProposalCollaboration(lead),
+                        icon: const Icon(Icons.upload_file_outlined, size: 17),
+                        label: const Text('도면·파일 관리'),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 8),
+                  for (var index = collaboration.documents.length - 1;
+                      index >= 0;
+                      index--)
+                    _proposalDocumentRow(
+                      collaboration.documents[index],
+                      latest: index == collaboration.documents.length - 1,
+                    ),
+                  const SizedBox(height: 6),
+                  Text(
+                      lead.division == RobinBusinessDivision.robot
+                          ? '요청서 이력에서 당시 도면 Rev를 확인하세요. 검토 완료와 파이프라인 단계 변경은 별도 처리입니다.'
+                          : '최신 확정 사양은 Negotiation 단계로 자동 승계됩니다.',
+                      style: RobinTheme.labelXs),
+                ],
+              ),
+            ),
+          ],
+        );
+      },
     );
   }
 
-  Widget _proposalField(String label, String value, {bool compact = false}) =>
+  Widget _proposalField(String label, String value,
+          {bool compact = false,
+          Key? fieldKey,
+          ValueChanged<String>? onChanged}) =>
       SizedBox(
         width: compact ? 150 : 210,
         child: TextFormField(
+          key: fieldKey,
           initialValue: value,
+          onChanged: onChanged,
           decoration: InputDecoration(
             labelText: label,
             border: const OutlineInputBorder(),
@@ -1311,7 +1606,9 @@ class _PipelineRegistrationViewState extends State<PipelineRegistrationView> {
                     ],
                   ),
                 ),
-                Chip(label: Text('${collaboration.comments.length}건')),
+                Chip(
+                    label: Text('${collaboration.comments.length}건',
+                        key: const ValueKey('proposal-comment-count'))),
               ],
             ),
           ),
@@ -1416,12 +1713,50 @@ class _PipelineRegistrationViewState extends State<PipelineRegistrationView> {
         : (negotiationRows.isEmpty ? null : negotiationRows.first);
     final calc = _calculateCost();
     final dealerView = robinUserProfile.value.isDealer;
+    if (!dealerView &&
+        selectedLead?.division == RobinBusinessDivision.platformModule) {
+      return Padding(
+          padding: const EdgeInsets.all(14),
+          child:
+              Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Text('${selectedLead!.number} · 플랫폼 VRB·견적 작업공간',
+                style: RobinTheme.headingSm),
+            const Text(
+                '로봇 유사모델 계산과 분리합니다. 실제 요율은 확정 전이며 VRB·견적 Rev·실행예산 근거를 입력해 확인할 수 있습니다.'),
+            OrderWorkflowButton(
+                recordKey: (selectedLead.division, selectedLead.number),
+                projectName: selectedLead.project,
+                section: 'vrb',
+                label: 'VRB·견적·실행예산'),
+            OrderWorkflowButton(
+                recordKey: (selectedLead.division, selectedLead.number),
+                projectName: selectedLead.project),
+          ]));
+    }
     return SingleChildScrollView(
       physics: const NeverScrollableScrollPhysics(),
       padding: const EdgeInsets.all(14),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          if (!dealerView && selectedLead != null)
+            Wrap(spacing: 8, children: [
+              OrderWorkflowButton(
+                  recordKey: (selectedLead.division, selectedLead.number),
+                  projectName: selectedLead.project,
+                  section: 'material',
+                  label: '재료비 산출 상세'),
+              OrderWorkflowButton(
+                  recordKey: (selectedLead.division, selectedLead.number),
+                  projectName: selectedLead.project,
+                  section: 'prices',
+                  label: '구매 단가 이력'),
+              OrderWorkflowButton(
+                  recordKey: (selectedLead.division, selectedLead.number),
+                  projectName: selectedLead.project,
+                  section: 'approvals',
+                  label: '조건별 결재'),
+            ]),
           Row(
             children: [
               Expanded(
@@ -1469,7 +1804,7 @@ class _PipelineRegistrationViewState extends State<PipelineRegistrationView> {
             ),
             child: Text(
               selectedLead == null
-                  ? '신규 등록 불가 · Assess 또는 Proposal에서 생성된 기존 수주를 선택하세요.'
+                  ? '목록에서 기존 수주를 선택하세요. 신규 수주는 신규 파이프라인에서 등록합니다.'
                   : 'Proposal 도면 스펙 자동 연동 · 가수주번호 ${selectedLead.number}',
               style: RobinTheme.labelXs.copyWith(color: RobinTheme.warning),
             ),
@@ -1509,8 +1844,10 @@ class _PipelineRegistrationViewState extends State<PipelineRegistrationView> {
             mainAxisAlignment: MainAxisAlignment.end,
             children: [
               OutlinedButton(
-                onPressed: () => setState(() => _activeStage = 1),
-                child: const Text('← 이전'),
+                onPressed: selectedLead == null
+                    ? null
+                    : () => _changeStage(selectedLead, 1),
+                child: const Text('Proposal로 단계 변경'),
               ),
               const SizedBox(width: 7),
               OutlinedButton(
@@ -1521,8 +1858,8 @@ class _PipelineRegistrationViewState extends State<PipelineRegistrationView> {
               FilledButton(
                 onPressed: selectedLead == null
                     ? null
-                    : () => _changeStage(selectedLead, 3),
-                child: const Text('Closed Won으로'),
+                    : () => widget.onNavigate?.call(2),
+                child: const Text('수주 현황·재료비 보기'),
               ),
             ],
           ),
@@ -1831,7 +2168,7 @@ class _PipelineRegistrationViewState extends State<PipelineRegistrationView> {
                   SizedBox(width: 7),
                   Expanded(
                     child: Text(
-                        'ERP 제품코드 중복 검증: 모델명이 같고 Spec.이 다르면 별도 사양코드(-S01)로 생성합니다.'),
+                        '제품코드 생성 규칙 미확정: 설계팀 규칙·필수 사양·채번 주체 확인 전에는 공식 코드를 생성하거나 ERP 중복 검증을 수행하지 않습니다.'),
                   ),
                 ],
               ),
@@ -1929,7 +2266,7 @@ class _PipelineRegistrationViewState extends State<PipelineRegistrationView> {
               borderRadius: BorderRadius.circular(7),
             ),
             child: const Text(
-              '결재 완료 시 Closed Won으로 전환하고 ERP 수주번호를 연계합니다. 반려 시 Negotiation을 유지합니다.',
+              '승인과 수주 입력은 Negotiation에서 확인합니다. ERP 등록은 별도 연계 대상이며 실제 전송은 연결되지 않았습니다.',
               style: TextStyle(fontSize: 11),
             ),
           ),
@@ -2005,259 +2342,6 @@ class _PipelineRegistrationViewState extends State<PipelineRegistrationView> {
         ),
       );
 
-  Widget _buildClosedWonWorkspace() {
-    final rows = _filteredForStage;
-    final lead = rows.contains(_selected)
-        ? _selected
-        : (rows.isEmpty ? null : rows.first);
-    if (lead == null) {
-      return const Center(child: Text('Closed Won 수주가 없습니다.'));
-    }
-    return ListView(
-      shrinkWrap: true,
-      physics: const NeverScrollableScrollPhysics(),
-      padding: const EdgeInsets.all(12),
-      children: [
-        _terminalOrderSelector(rows, lead, 'Closed Won 수주 선택'),
-        const SizedBox(height: 12),
-        Container(
-          padding: const EdgeInsets.all(18),
-          decoration: BoxDecoration(
-            color: RobinTheme.signalGreen.withValues(alpha: .06),
-            borderRadius: BorderRadius.circular(9),
-            border: Border.all(
-                color: RobinTheme.signalGreen.withValues(alpha: .55)),
-          ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text('✓ Closed Won · 수주 확정',
-                  style: RobinTheme.headingLg
-                      .copyWith(color: RobinTheme.signalGreen)),
-              const SizedBox(height: 5),
-              Text('최종 계약과 결재가 완료된 수주를 ERP와 프로젝트 관리로 연결합니다.',
-                  style: RobinTheme.bodySm),
-              const SizedBox(height: 14),
-              Row(
-                children: [
-                  Expanded(
-                    child: InputDecorator(
-                      decoration: const InputDecoration(
-                        labelText: 'ROBIN 가수주번호',
-                        border: OutlineInputBorder(),
-                        isDense: true,
-                      ),
-                      child: Text(lead.number),
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: InputDecorator(
-                      decoration: const InputDecoration(
-                        labelText: 'ERP 공식 수주번호',
-                        border: OutlineInputBorder(),
-                        isDense: true,
-                      ),
-                      child: Text(lead.erpOrderNumber ?? 'ERP 연계 대기'),
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: InputDecorator(
-                      decoration: const InputDecoration(
-                        labelText: '확정 수주금액',
-                        border: OutlineInputBorder(),
-                        isDense: true,
-                      ),
-                      child: Text('${_money(lead.amount)}만원'),
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 10),
-              OutlinedButton.icon(
-                onPressed: () => _message('계약서 첨부 영역을 열었습니다.'),
-                icon: const Icon(Icons.attach_file, size: 17),
-                label: const Text('계약서 첨부'),
-              ),
-              const SizedBox(height: 14),
-              Container(
-                width: double.infinity,
-                padding: const EdgeInsets.all(10),
-                decoration: BoxDecoration(
-                  color: Colors.white,
-                  borderRadius: BorderRadius.circular(7),
-                  border: Border.all(
-                      color: RobinTheme.signalGreen.withValues(alpha: .4)),
-                ),
-                child: const Text('ERP 연동 완료 시 프로젝트 관리 화면에 설계 단계부터 자동 등록됩니다.'),
-              ),
-            ],
-          ),
-        ),
-        const SizedBox(height: 10),
-        Row(
-          mainAxisAlignment: MainAxisAlignment.end,
-          children: [
-            OutlinedButton(
-              onPressed: () => _showStageChangeDialog(lead),
-              child: const Text('단계 변경'),
-            ),
-            const SizedBox(width: 7),
-            FilledButton.icon(
-              onPressed: () {
-                _message('수주 확정 처리가 완료되었습니다. 프로젝트 관리에 반영했습니다.');
-                widget.onNavigate?.call(3);
-              },
-              icon: const Icon(Icons.check_circle_outline, size: 17),
-              label: const Text('수주 확정 완료'),
-            ),
-          ],
-        ),
-      ],
-    );
-  }
-
-  Widget _buildClosedLostWorkspace() {
-    final rows = _filteredForStage;
-    final lead = rows.contains(_selected)
-        ? _selected
-        : (rows.isEmpty ? null : rows.first);
-    if (lead == null) {
-      return const Center(child: Text('Closed Lost 수주가 없습니다.'));
-    }
-    return ListView(
-      shrinkWrap: true,
-      physics: const NeverScrollableScrollPhysics(),
-      padding: const EdgeInsets.all(12),
-      children: [
-        _terminalOrderSelector(rows, lead, 'Closed Lost 수주 선택'),
-        const SizedBox(height: 12),
-        Container(
-          padding: const EdgeInsets.all(18),
-          decoration: BoxDecoration(
-            color: RobinTheme.signalRed.withValues(alpha: .055),
-            borderRadius: BorderRadius.circular(9),
-            border:
-                Border.all(color: RobinTheme.signalRed.withValues(alpha: .55)),
-          ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text('✕ Closed Lost · 수주 실패',
-                  style: RobinTheme.headingLg
-                      .copyWith(color: RobinTheme.signalRed)),
-              const SizedBox(height: 5),
-              Text('${lead.number} · ${lead.customer} · ${lead.project}',
-                  style: RobinTheme.bodySm),
-              const SizedBox(height: 14),
-              DropdownButtonFormField<String>(
-                initialValue: _lostReason,
-                decoration: const InputDecoration(
-                  labelText: '실패 사유 · 필수',
-                  border: OutlineInputBorder(),
-                  isDense: true,
-                ),
-                items: const [
-                  '경쟁사 선점',
-                  '예산 취소',
-                  '고객 변심',
-                  '가격 협의 실패',
-                  '사양 불일치',
-                  '기타',
-                ]
-                    .map((item) =>
-                        DropdownMenuItem(value: item, child: Text(item)))
-                    .toList(),
-                onChanged: (value) =>
-                    setState(() => _lostReason = value ?? _lostReason),
-              ),
-              const SizedBox(height: 10),
-              TextField(
-                controller: _lostDetailController,
-                maxLines: 3,
-                decoration: InputDecoration(
-                  labelText: '상세 사유',
-                  hintText:
-                      lead.dropReason ?? '구체적인 실패 경위와 경쟁사·경쟁제품 정보를 입력하세요.',
-                  border: const OutlineInputBorder(),
-                  isDense: true,
-                ),
-              ),
-              const SizedBox(height: 10),
-              const Text(
-                'Closed Lost는 유지되며 별도의 “수주 중단” 단계는 사용하지 않습니다. 어느 단계에서든 Drop 처리한 결과가 이 화면에 누적됩니다.',
-                style: TextStyle(fontSize: 11, color: RobinTheme.textSecondary),
-              ),
-            ],
-          ),
-        ),
-        const SizedBox(height: 10),
-        Row(
-          mainAxisAlignment: MainAxisAlignment.end,
-          children: [
-            OutlinedButton(
-              onPressed: () => _showStageChangeDialog(lead),
-              child: const Text('단계 변경'),
-            ),
-            const SizedBox(width: 7),
-            FilledButton.icon(
-              onPressed: () => _saveClosedLost(lead),
-              style:
-                  FilledButton.styleFrom(backgroundColor: RobinTheme.signalRed),
-              icon: const Icon(Icons.cancel_outlined, size: 17),
-              label: const Text('실패 사유 저장'),
-            ),
-          ],
-        ),
-      ],
-    );
-  }
-
-  Widget _terminalOrderSelector(
-          List<_PipelineLead> rows, _PipelineLead selected, String label) =>
-      DropdownButtonFormField<_PipelineLead>(
-        initialValue: selected,
-        isExpanded: true,
-        decoration: InputDecoration(
-          labelText: label,
-          border: const OutlineInputBorder(),
-          isDense: true,
-        ),
-        items: rows
-            .map((item) => DropdownMenuItem(
-                  value: item,
-                  child: Text('${item.number} · ${item.project}'),
-                ))
-            .toList(),
-        onChanged: (value) => setState(() => _selected = value),
-      );
-
-  void _saveClosedLost(_PipelineLead lead) {
-    final detail = _lostDetailController.text.trim();
-    final reason = detail.isEmpty ? _lostReason : '$_lostReason · $detail';
-    final index = _leads.indexWhere((item) => item.number == lead.number);
-    if (index < 0) return;
-    final updated = lead.copyWith(dropReason: reason);
-    setState(() {
-      _leads[index] = updated;
-      _selected = updated;
-      _histories.insert(
-        0,
-        _PipelineHistory(
-          number: lead.number,
-          at: _now(),
-          user: robinUserProfile.value.name,
-          from: 'Closed Lost',
-          to: '실패 사유 저장',
-          note: reason,
-        ),
-      );
-      _lostDetailController.clear();
-    });
-    _message('${lead.number} 실패 사유를 저장했습니다.');
-  }
-
   Widget _buildHistoryPanel() {
     final selected = _selected;
     final rows = selected == null
@@ -2276,7 +2360,7 @@ class _PipelineRegistrationViewState extends State<PipelineRegistrationView> {
                 const SizedBox(width: 7),
                 Text('단계 변경 이력', style: RobinTheme.headingSm),
                 const Spacer(),
-                if (selected != null)
+                if (selected != null && selected.resultStatus == null)
                   IconButton(
                     tooltip: '단계 변경',
                     onPressed: () => _showStageChangeDialog(selected),
@@ -2400,8 +2484,9 @@ class _PipelineRegistrationViewState extends State<PipelineRegistrationView> {
 
   List<_PipelineLead> get _filteredForStage {
     final query = _searchController.text;
-    return _leads.where((lead) {
+    return _scopedLeads.where((lead) {
       if (lead.stage != _activeStage) return false;
+      if (lead.resultStatus != null) return false;
       if (_customerFilter != '고객사' && lead.customer != _customerFilter) {
         return false;
       }
@@ -2418,9 +2503,10 @@ class _PipelineRegistrationViewState extends State<PipelineRegistrationView> {
 
   List<_PipelineLead> get _filteredLeads {
     final query = _searchController.text;
-    return _leads.where((lead) {
-      if (_overviewStageFilter != '전체 단계' &&
-          _stageNames[lead.stage] != _overviewStageFilter) {
+    return _scopedLeads.where((lead) {
+      if (_overviewStageFilter != '전체 상태' &&
+          (lead.resultStatus != null ||
+              _stageNames[lead.stage] != _overviewStageFilter)) {
         return false;
       }
       if (_customerFilter != '고객사' && lead.customer != _customerFilter) {
@@ -2470,21 +2556,77 @@ class _PipelineRegistrationViewState extends State<PipelineRegistrationView> {
   }
 
   Future<void> _registerPipeline() async {
+    final division = await chooseRegistrationDivision(context, _scope);
+    if (division == null || !mounted) return;
     final number = _nextRobinNumber();
+    if (division == RobinBusinessDivision.platformModule) {
+      setState(() {
+        _platformDraft ??= PlatformPipelineData((division, number),
+            customer: '', project: '', owner: robinUserProfile.value.name);
+        _selected = null;
+        _activeStage = 0;
+        _overviewStageFilter = '전체 상태';
+        _customerFilter = '고객사';
+        _searchController.clear();
+      });
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        final target = _workspaceKey.currentContext;
+        if (mounted && target != null) Scrollable.ensureVisible(target);
+      });
+      return;
+    }
     final result = await showDialog<_PipelineLead>(
       context: context,
       builder: (context) => _PipelineRegistrationDialog(
+        division: division,
         number: number,
-        initialStage: _activeStage == 1 ? 1 : 0,
+        initialStage: division == RobinBusinessDivision.robot ? 1 : 0,
       ),
     );
     if (result == null || !mounted) return;
     setState(() {
       _leads.insert(0, result);
-      _activeStage = 0;
+      _activeStage = result.stage;
+      _overviewStageFilter = '전체 상태';
       _selected = result;
     });
     _message('${result.number} ${_stageNames[result.stage]} 신규 수주가 등록되었습니다.');
+  }
+
+  void _saveNewPlatform(PlatformPipelineData data) {
+    if (_leads.any((lead) => lead.number == data.key.$2)) {
+      _syncPlatformLead(data.key.$2, data);
+      return;
+    }
+    final lead = _PipelineLead(
+      division: RobinBusinessDivision.platformModule,
+      number: data.key.$2,
+      project: data.projectName,
+      customer: data.assess['customer'] ?? '',
+      dealer: data.assess['seller'] ?? '본사 직판',
+      owner: data.owner,
+      stage: 0,
+      amount: 0,
+      materialCost: 0,
+      quantity: data.equipment.values.fold<int>(0, (a, b) => a + b),
+      orderMonth: data.assess['orderMonth'] ?? '',
+      arrivalMonth: data.assess['arrivalMonth'] ?? '',
+      productType: data.equipment.entries
+          .where((e) => e.value > 0)
+          .map((e) => e.key)
+          .join(', '),
+      destination: data.assess['site'] ?? '',
+      endUser: data.assess['endUser'] ?? '',
+      orderChanges: 0,
+      specChanges: 0,
+    );
+    setState(() {
+      platformPipelineRecords[data.key] = data;
+      _leads.insert(0, lead);
+      _selected = lead;
+      _platformDraft = null;
+    });
+    _message('${lead.number} Assess 신규 수주가 등록되었습니다.');
   }
 
   String _nextRobinNumber([Set<String> reserved = const {}]) {
@@ -2505,21 +2647,63 @@ class _PipelineRegistrationViewState extends State<PipelineRegistrationView> {
   }
 
   Future<void> _downloadTrafficTemplate() async {
-    final sample = _selected ?? _leads.first;
-    final fields = _assessDetailFields(sample);
-    final path = await DesktopFileService.saveWorkbook(
-      suggestedName: '수주물동관리_양식.xlsx',
-      sheetName: '수주물동관리',
-      headers: fields.map((field) => field.label).toList(),
-      rows: [fields.map((field) => field.value).toList()],
-    );
-    if (path != null && mounted) _message('Excel 양식 저장 완료: $path');
+    try {
+      final path = await DesktopFileService.saveWorkbook(
+        suggestedName: '수주물동관리_양식.xlsx',
+        sheetName: '수주물동관리',
+        headers: trafficHeaders,
+        rows: const [],
+      );
+      if (path != null && mounted) {
+        _message(kIsWeb
+            ? 'Excel 양식 다운로드 요청: $path · 브라우저 다운로드 목록을 확인해주세요.'
+            : 'Excel 양식 저장 완료: $path');
+      }
+    } catch (error) {
+      if (mounted) _message('Excel 양식 저장 실패: $error');
+    }
   }
 
   Future<void> _showExcelImportDialog() async {
+    final division = await chooseRegistrationDivision(context, _scope);
+    if (division == null || !mounted) return;
+    TrafficImportResult result;
+    String fileName;
+    try {
+      final List<int> bytes;
+      final loader = widget.loadTrafficWorkbook;
+      if (loader != null) {
+        final workbook = await loader();
+        if (workbook == null || !mounted) return;
+        fileName = workbook.name;
+        bytes = workbook.bytes;
+      } else {
+        final file = await DesktopFileService.pickWorkbook();
+        if (file == null || !mounted) return;
+        fileName = file.name;
+        bytes = await DesktopFileService.readWorkbook(file);
+      }
+      result = TrafficExcelService.parse(
+        bytes,
+        existingFingerprints: _leads
+            .where((l) => l.division == division)
+            .map((l) => trafficFingerprint(l.project, l.customer, l.orderMonth))
+            .toSet(),
+        existingErpNumbers:
+            _leads.map((l) => l.erpOrderNumber).whereType<String>().toSet(),
+        divisionAliases: division == RobinBusinessDivision.robot
+            ? {'ROBOT', '로봇', '로봇사업부', division.label}
+            : {'플랫폼', '플랫폼·모듈', '플랫폼모듈', '플랫폼모듈담당', division.label},
+      );
+    } catch (error) {
+      if (mounted) _message('물동 Excel 불러오기 실패: $error');
+      return;
+    }
+    if (!mounted) return;
     final confirmed = await showDialog<bool>(
       context: context,
-      builder: (context) => const _ExcelImportPreviewDialog(),
+      builder: (context) =>
+          _ExcelImportPreviewDialog(result: result, fileName: fileName),
     );
     if (confirmed != true || !mounted) return;
 
@@ -2531,46 +2715,48 @@ class _PipelineRegistrationViewState extends State<PipelineRegistrationView> {
     }
 
     final imported = [
-      _PipelineLead(
-        number: reserveNumber(),
-        project: '2차전지 조립라인 로봇 자동화',
-        customer: 'LG에너지솔루션',
-        dealer: '시스템알앤디',
-        owner: robinUserProfile.value.name,
-        stage: 0,
-        amount: 32300,
-        materialCost: 23983,
-        quantity: 4,
-        orderMonth: '2026-10',
-        arrivalMonth: '2026-11',
-        productType: '기구부',
-        destination: 'LG향',
-        endUser: 'LG에너지솔루션',
-        orderChanges: 0,
-        specChanges: 0,
-      ),
-      _PipelineLead(
-        number: reserveNumber(),
-        project: '디스플레이 물류 이송 로봇',
-        customer: 'LG디스플레이',
-        dealer: '본사 직판',
-        owner: robinUserProfile.value.name,
-        stage: 0,
-        amount: 344900,
-        materialCost: 249926,
-        quantity: 10,
-        orderMonth: '2026-11',
-        arrivalMonth: '2026-12',
-        productType: '로봇',
-        destination: 'LG향',
-        endUser: 'LG디스플레이',
-        orderChanges: 0,
-        specChanges: 0,
-      ),
+      for (final row in result.accepted)
+        _PipelineLead(
+          division: division,
+          number: reserveNumber(),
+          project: row.values[20],
+          customer: row.values[18],
+          dealer: row.values[17],
+          owner: row.values[5].isEmpty
+              ? robinUserProfile.value.name
+              : row.values[5],
+          stage: division == RobinBusinessDivision.robot ? 1 : 0,
+          amount: millionToManwon(row.salesMillion),
+          materialCost: millionToManwon(row.materialMillion),
+          quantity: row.quantity,
+          orderMonth: row.orderMonth,
+          arrivalMonth: row.arrivalMonth,
+          productType: row.values[10],
+          destination: row.values[14],
+          endUser: row.values[19],
+          orderChanges: 0,
+          specChanges: 0,
+          trafficValues: row.values,
+          trafficSource: '$fileName · ${row.sheet}!${row.row}행',
+        ),
     ];
+    if (imported.isEmpty) return;
+    for (final lead in imported) {
+      final code = lead.trafficValues![4];
+      if (code.isNotEmpty) {
+        saveProductIdentity(
+            (lead.division, lead.number),
+            ProductIdentity(
+                productCode: code,
+                source: 'Excel 입력',
+                reference: lead.trafficSource),
+            author: robinUserProfile.value.name);
+      }
+    }
     setState(() {
       _leads.insertAll(0, imported);
-      _activeStage = 0;
+      _activeStage = imported.first.stage;
+      _overviewStageFilter = '전체 상태';
       _selected = imported.first;
       for (final lead in imported.reversed) {
         _histories.insert(
@@ -2580,8 +2766,8 @@ class _PipelineRegistrationViewState extends State<PipelineRegistrationView> {
             at: _now(),
             user: robinUserProfile.value.name,
             from: 'Excel 업로드',
-            to: 'Assess',
-            note: '수주물동관리 양식.xlsx 신규 행 · ROBIN 가수주번호 자동 채번',
+            to: _stageNames[lead.stage],
+            note: '${lead.trafficSource} · 신규 등록 · 임시 채번 · ERP 수주번호는 별도 수동 매칭',
           ),
         );
       }
@@ -2602,7 +2788,8 @@ class _PipelineRegistrationViewState extends State<PipelineRegistrationView> {
     );
     if (erpNumber == null || !mounted) return;
     final duplicate = _leads.any((lead) =>
-        !identical(lead, selected) && lead.erpOrderNumber == erpNumber);
+        !identical(lead, selected) &&
+        lead.erpOrderNumber?.toUpperCase() == erpNumber);
     if (duplicate) {
       _message('$erpNumber는 이미 다른 가수주 건에 매칭된 ERP 번호입니다.');
       return;
@@ -2621,20 +2808,24 @@ class _PipelineRegistrationViewState extends State<PipelineRegistrationView> {
           number: updated.number,
           at: _now(),
           user: robinUserProfile.value.name,
-          from: '가수주번호 ${updated.number}',
+          from:
+              '가수주번호 ${updated.number} · ERP ${selected.erpOrderNumber ?? '미매칭'}',
           to: 'ERP 수주번호 $erpNumber',
-          note: 'ERP 공식 수주번호 매칭',
+          note: '수동 매칭 · ERP 검증 전 · 가수주번호 유지',
         ),
       );
     });
-    _message('${updated.number} ↔ $erpNumber 매칭을 완료했습니다.');
+    _message('${updated.number} ↔ $erpNumber 수동 매칭 저장 (ERP 검증 전)');
   }
 
   Future<void> _showAssessDetail(_PipelineLead lead) => showDialog<void>(
         context: context,
-        builder: (context) => _AssessDetailDialog(
-          lead: lead,
-          fields: _assessDetailFields(lead),
+        builder: (context) => ValueListenableBuilder(
+          valueListenable: productIdentities,
+          builder: (context, _, child) => _AssessDetailDialog(
+            lead: lead,
+            fields: _assessDetailFields(lead),
+          ),
         ),
       );
 
@@ -2648,17 +2839,24 @@ class _PipelineRegistrationViewState extends State<PipelineRegistrationView> {
     final channel = lead.dealer.contains('본사') ? '직판' : '대리점';
     final orderYear = lead.orderMonth.split('-').first;
     final arrivalYear = lead.arrivalMonth.split('-').first;
-    String decimal(num value, [int digits = 2]) =>
-        value.toStringAsFixed(digits).replaceFirst(RegExp(r'\.?0+$'), '');
-    return [
+    String decimal(num value, [int digits = 2]) => value
+        .toStringAsFixed(digits)
+        .replaceFirst(RegExp(r'0+$'), '')
+        .replaceFirst(RegExp(r'\.$'), '');
+    final fields = [
       const _AssessField('기본·조직', '주차', '2026-W32'),
       _AssessField('기본·조직', '수주월', lead.orderMonth),
       _AssessField('기본·조직', '입고월', lead.arrivalMonth),
       _AssessField('기본·조직', 'ERP 수주번호',
           lead.erpOrderNumber ?? '미매칭 (가수주 ${lead.number})'),
-      const _AssessField('기본·조직', '제품코드', '미등록'),
+      _AssessField(
+          '기본·조직',
+          '제품코드',
+          identityFor((lead.division, lead.number)).productCode.isEmpty
+              ? '미등록'
+              : identityFor((lead.division, lead.number)).productCode),
       _AssessField('기본·조직', '담당자', lead.owner),
-      const _AssessField('기본·조직', '사업부', '로봇사업부'),
+      _AssessField('기본·조직', '사업부', lead.division.label),
       const _AssessField('기본·조직', 'Item', '단품'),
       const _AssessField('기본·조직', '내수/수출', '내수'),
       const _AssessField('기본·조직', '제조구분', '내작'),
@@ -2681,9 +2879,12 @@ class _PipelineRegistrationViewState extends State<PipelineRegistrationView> {
       const _AssessField('금액·원가', '외화단가', '-'),
       const _AssessField('금액·원가', '외화매출액', '-'),
       _AssessField('금액·원가', '수량', '${lead.quantity}'),
-      _AssessField('금액·원가', '판가', decimal(unitPrice / 10000)),
-      _AssessField('금액·원가', '매출액(백만원)', decimal(lead.amount / 10000)),
-      _AssessField('금액·원가', '재료비(백만원)', decimal(lead.materialCost / 10000, 4)),
+      _AssessField('금액·원가', '판가',
+          '${decimal(manwonToMillion(unitPrice), 6)} (백만원/대 · 참고 계산)'),
+      _AssessField(
+          '금액·원가', '매출액(백만원)', decimal(manwonToMillion(lead.amount), 6)),
+      _AssessField(
+          '금액·원가', '재료비(백만원)', decimal(manwonToMillion(lead.materialCost), 6)),
       _AssessField(
           '금액·원가', '재료비율', '${lead.materialRatio.toStringAsFixed(1)}%'),
       const _AssessField('금액·원가', '지급수수료(백만원)', '-'),
@@ -2695,11 +2896,25 @@ class _PipelineRegistrationViewState extends State<PipelineRegistrationView> {
       _AssessField('등급·반영', 'WORST', grade == 'WORST' ? '○' : '-'),
       _AssessField('등급·반영', '수주', orderYear),
       _AssessField('등급·반영', '입고', arrivalYear),
-      _AssessField('등급·반영', '조정 매출액(억원)', _money(lead.amount * 10)),
-      _AssessField('등급·반영', '조정 재료비(억원)', _money(lead.materialCost * 10)),
+      _AssessField('등급·반영', '조정 매출액(억원)',
+          '${decimal(manwonToEok(lead.amount), 8)} (단순 환산 · 조정 규칙 미확정)'),
+      _AssessField('등급·반영', '조정 재료비(억원)',
+          '${decimal(manwonToEok(lead.materialCost), 8)} (단순 환산 · 조정 규칙 미확정)'),
       const _AssessField('원본 계산 보조열', 'AS (헤더 없음)', '빈 열'),
       const _AssessField('원본 계산 보조열', 'AT (헤더 없음)', '빈 열'),
-      const _AssessField('원본 계산 보조열', 'AU (헤더 없음)', '100,000,000'),
+      const _AssessField('원본 계산 보조열', 'AU (헤더 없음)', '빈 열'),
+    ];
+    final raw = lead.trafficValues;
+    if (raw == null) return fields;
+    // Keep uploaded classifications/grades/foreign quotes exactly as supplied.
+    // Current stage, owner, months and verified manual identity come from the app.
+    const currentFields = {1, 2, 3, 4, 5, 6, 18, 19, 20, 21, 28, 30, 31};
+    return [
+      for (var i = 0; i < fields.length; i++)
+        currentFields.contains(i)
+            ? fields[i]
+            : _AssessField(fields[i].section, fields[i].label,
+                raw[i].isEmpty ? '미입력' : raw[i])
     ];
   }
 
@@ -2709,7 +2924,9 @@ class _PipelineRegistrationViewState extends State<PipelineRegistrationView> {
       builder: (context) => RobinSimpleDialog(
         title: Text('${lead.number} 단계 변경'),
         children: [
-          for (var index = 0; index < _stageNames.length; index++)
+          for (final index in lead.division == RobinBusinessDivision.robot
+              ? [1, 2]
+              : [0, 1, 2])
             SimpleDialogOption(
               onPressed: () => Navigator.pop(context, index),
               child: ListTile(
@@ -2728,119 +2945,95 @@ class _PipelineRegistrationViewState extends State<PipelineRegistrationView> {
   }
 
   Future<void> _changeStage(_PipelineLead lead, int nextStage) async {
-    String? dropNote;
-    if (nextStage == 4) {
-      final drop = await showDialog<_DropInfo>(
-        context: context,
-        builder: (context) => _DropInfoDialog(lead: lead),
-      );
-      if (drop == null || !mounted) return;
-      dropNote =
-          'Drop 사유: ${drop.reason} · 경쟁사: ${drop.competitor} · 경쟁제품: ${drop.product}';
+    if (lead.division == RobinBusinessDivision.platformModule) {
+      final data = platformPipelineFor((lead.division, lead.number),
+          customer: lead.customer,
+          project: lead.project,
+          owner: lead.owner,
+          product: lead.productType,
+          quantity: lead.quantity);
+      if (lead.stage == 0 && nextStage == 1) {
+        final errors = data.validateAssess();
+        if (data.equipmentTbd || errors.isNotEmpty) {
+          _message(data.equipmentTbd
+              ? '장비를 확정한 뒤 Proposal로 진행해주세요.'
+              : errors.join(' '));
+          return;
+        }
+        data.saveAssess(robinUserProfile.value.name);
+      }
+      if (lead.stage == 1 && nextStage == 2 && !data.readyToNegotiate) {
+        _message('플랫폼 Proposal의 진행 체크를 완료해주세요.');
+        return;
+      }
     }
-    final noteController = TextEditingController();
-    final note = dropNote ??
-        await showDialog<String>(
-          context: context,
-          builder: (context) => RobinAlertDialog(
-            title: Text('${lead.number} · ${_stageNames[nextStage]}'),
-            content: SizedBox(
-              width: 470,
-              child: TextField(
-                controller: noteController,
-                autofocus: true,
-                minLines: 3,
-                maxLines: 5,
-                decoration: const InputDecoration(
-                  labelText: '변경 사유/사양 수정사항',
-                  border: OutlineInputBorder(),
-                ),
-              ),
-            ),
-            actions: [
-              TextButton(
-                  onPressed: () => Navigator.pop(context),
-                  child: const Text('취소')),
-              FilledButton(
-                  onPressed: () => Navigator.pop(
-                      context,
-                      noteController.text.trim().isEmpty
-                          ? '단계 이동 승인'
-                          : noteController.text.trim()),
-                  child: const Text('변경')),
-            ],
-          ),
-        );
-    noteController.dispose();
-    if (note == null || !mounted) return;
-
-    if (lead.stage == 3 && nextStage < 3) {
-      final newLead = lead.copyWith(
-        number: 'RB-2608-R${(_leads.length + 1).toString().padLeft(2, '0')}',
-        stage: nextStage,
-        erpLinked: false,
-        orderChanges: lead.orderChanges + 1,
-      );
-      setState(() {
-        _leads.insert(0, newLead);
-        _selected = newLead;
-        _activeStage = nextStage;
-        _histories.insert(
-          0,
-          _PipelineHistory(
-            number: newLead.number,
-            at: _now(),
-            user: robinUserProfile.value.name,
-            from: '${lead.number} 정보 불러오기',
-            to: _stageNames[nextStage],
-            note: '수주 성공 후 이전단계 이동으로 신규 수주번호 자동부여 · $note',
-          ),
-        );
-      });
-      _message('${newLead.number}가 자동 부여되고 이전 수주 정보를 불러왔습니다.');
+    final allowed =
+        lead.division == RobinBusinessDivision.robot ? [1, 2] : [0, 1, 2];
+    if (!allowed.contains(nextStage) ||
+        lead.resultStatus != null ||
+        nextStage == lead.stage) {
       return;
     }
-
-    final updated = lead.copyWith(
-      stage: nextStage,
-      erpLinked: lead.erpOrderNumber != null,
-      dropReason: nextStage == 4 ? dropNote : lead.dropReason,
+    var enteredNote = '';
+    final note = await showDialog<String>(
+      context: context,
+      builder: (context) => RobinAlertDialog(
+        title: Text('${lead.number} · ${_stageNames[nextStage]}'),
+        content: SizedBox(
+            width: 470,
+            child: TextField(
+              key: const ValueKey('pipeline-stage-change-note'),
+              onChanged: (value) => enteredNote = value,
+              minLines: 3,
+              maxLines: 5,
+              decoration: const InputDecoration(
+                  labelText: '변경 사유/사양 수정사항', border: OutlineInputBorder()),
+            )),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(context), child: const Text('취소')),
+          FilledButton(
+              key: const ValueKey('confirm-pipeline-stage-change'),
+              onPressed: () => Navigator.pop(context,
+                  enteredNote.trim().isEmpty ? '단계 이동' : enteredNote.trim()),
+              child: const Text('변경')),
+        ],
+      ),
     );
-    setState(() {
-      final index = _leads.indexOf(lead);
-      _leads[index] = updated;
-      _selected = updated;
-      _activeStage = updated.stage;
-      _histories.insert(
-        0,
-        _PipelineHistory(
-          number: updated.number,
-          at: _now(),
-          user: robinUserProfile.value.name,
-          from: _stageNames[lead.stage],
-          to: _stageNames[nextStage],
-          note: note,
-        ),
-      );
-    });
-    if (nextStage == 3) {
-      final go = await showDialog<bool>(
-        context: context,
-        builder: (context) => RobinAlertDialog(
-          title: const Text('Closed Won 처리 완료'),
-          content: const Text('ERP 수주 연계가 완료되었습니다. 수주관리로 이동할까요?'),
-          actions: [
-            TextButton(
-                onPressed: () => Navigator.pop(context, false),
-                child: const Text('머무르기')),
-            FilledButton(
-                onPressed: () => Navigator.pop(context, true),
-                child: const Text('수주관리로 이동')),
-          ],
-        ),
-      );
-      if (go == true) widget.onNavigate?.call(2);
+    if (note == null || !mounted) return;
+    final platformData = lead.division == RobinBusinessDivision.platformModule
+        ? platformPipelineRecords[(lead.division, lead.number)]
+        : null;
+    final updated = lead.copyWith(
+        stage: nextStage,
+        project: platformData?.projectName,
+        customer: platformData?.assess['customer']);
+    if (lead.division == RobinBusinessDivision.platformModule &&
+        nextStage == 1) {
+      final data = platformPipelineRecords[(lead.division, lead.number)]!;
+      data.assess['project'] = data.projectName;
+      if (!data.titleLocked) data.quote['title'] = data.projectName;
+      data.titleLocked = true;
     }
+    setState(() {
+      _leads[_leads.indexOf(lead)] = updated;
+      _selected = updated;
+      _activeStage = nextStage;
+      if (_overviewStageFilter != '전체 상태') {
+        _overviewStageFilter = _stageNames[nextStage];
+      }
+      _histories.insert(
+          0,
+          _PipelineHistory(
+            number: updated.number,
+            at: _now(),
+            user: robinUserProfile.value.name,
+            from: _stageNames[lead.stage],
+            to: _stageNames[nextStage],
+            note: note,
+          ));
+    });
+    _message('${lead.number} · ${_stageNames[nextStage]}로 변경했습니다.');
   }
 
   void _addHistoryNote() {
@@ -3498,7 +3691,9 @@ class _ErpOrderMatchDialogState extends State<_ErpOrderMatchDialog> {
   @override
   void initState() {
     super.initState();
-    _erpNumber = TextEditingController(text: widget.lead.erpOrderNumber ?? '');
+    _erpNumber = TextEditingController(
+        text:
+            widget.lead.erpOrderNumber ?? widget.lead.trafficValues?[3] ?? '');
   }
 
   @override
@@ -3534,14 +3729,14 @@ class _ErpOrderMatchDialogState extends State<_ErpOrderMatchDialog> {
                   textCapitalization: TextCapitalization.characters,
                   decoration: const InputDecoration(
                     labelText: 'ERP 공식 수주번호',
-                    hintText: '예: SO-2608-025',
+                    hintText: 'ERP 화면에 표시된 번호를 입력',
                     border: OutlineInputBorder(),
                   ),
                   validator: (value) {
                     final number = value?.trim().toUpperCase() ?? '';
                     if (number.isEmpty) return 'ERP 수주번호를 입력해주세요.';
-                    if (!RegExp(r'^SO-[0-9]{4}-[0-9]{3,}$').hasMatch(number)) {
-                      return 'SO-YYMM-일련번호 형식으로 입력해주세요.';
+                    if (number.length > 100 || RegExp(r'\s').hasMatch(number)) {
+                      return '공백 없이 100자 이하로 입력해주세요. 공식 번호 형식은 확인 예정입니다.';
                     }
                     return null;
                   },
@@ -3552,7 +3747,8 @@ class _ErpOrderMatchDialogState extends State<_ErpOrderMatchDialog> {
                   style: RobinTheme.bodySm,
                 ),
                 const SizedBox(height: 5),
-                const Text('매칭 결과는 단계 변경 이력에 등록자와 함께 저장됩니다.'),
+                const Text(
+                    '수동 매칭 · ERP 검증 전. 실제 ERP를 조회하거나 수정하지 않습니다.\n가수주번호는 유지되며, 등록자·시각·이전/새 번호가 단계 변경 이력에 남습니다.'),
               ],
             ),
           ),
@@ -3576,7 +3772,10 @@ class _ErpOrderMatchDialogState extends State<_ErpOrderMatchDialog> {
 }
 
 class _ExcelImportPreviewDialog extends StatelessWidget {
-  const _ExcelImportPreviewDialog();
+  final TrafficImportResult result;
+  final String fileName;
+  const _ExcelImportPreviewDialog(
+      {required this.result, required this.fileName});
 
   @override
   Widget build(BuildContext context) => RobinAlertDialog(
@@ -3601,36 +3800,42 @@ class _ExcelImportPreviewDialog extends StatelessWidget {
                     border: Border.all(color: RobinTheme.border),
                     borderRadius: BorderRadius.circular(9),
                   ),
-                  child: const Row(
+                  child: Row(
                     children: [
-                      Icon(Icons.description_outlined,
+                      const Icon(Icons.description_outlined,
                           color: RobinTheme.signalGreen),
-                      SizedBox(width: 10),
+                      const SizedBox(width: 10),
                       Expanded(
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            Text('수주물동관리 양식.xlsx',
-                                style: TextStyle(fontWeight: FontWeight.w700)),
-                            SizedBox(height: 3),
-                            Text('물동 입력 · 데이터 3건 미리보기'),
+                            Text(fileName,
+                                style: const TextStyle(
+                                    fontWeight: FontWeight.w700)),
+                            const SizedBox(height: 3),
+                            Text('물동 입력 · 데이터 ${result.rows.length}건 미리보기'),
                           ],
                         ),
                       ),
-                      Chip(label: Text('양식 검증 완료')),
+                      const Chip(label: Text('47열 양식')),
                     ],
                   ),
                 ),
                 const SizedBox(height: 12),
-                const Wrap(
+                Wrap(
                   spacing: 7,
                   runSpacing: 7,
                   children: [
-                    Chip(label: Text('전체 47열')),
-                    Chip(label: Text('업무 항목 44개')),
-                    Chip(label: Text('계산 보조열 3개')),
-                    Chip(label: Text('신규 2건')),
-                    Chip(label: Text('중복 검토 1건')),
+                    const Chip(label: Text('전체 47열')),
+                    const Chip(label: Text('업무 항목 44개')),
+                    const Chip(label: Text('계산 보조열 3개')),
+                    Chip(label: Text('신규 ${result.accepted.length}건')),
+                    Chip(
+                        label: Text(
+                            '중복 검토 ${result.rows.where((r) => r.duplicate && r.errors.isEmpty).length}건')),
+                    Chip(
+                        label: Text(
+                            '오류 ${result.rows.where((r) => r.errors.isNotEmpty).length}건')),
                   ],
                 ),
                 const SizedBox(height: 12),
@@ -3642,7 +3847,8 @@ class _ExcelImportPreviewDialog extends StatelessWidget {
                     borderRadius: BorderRadius.circular(8),
                   ),
                   child: const Text(
-                    '반복 업로드의 수정·중복 판정 기준은 협의 전이므로, 현재는 기존 PJT명·거래처·수주월이 모두 같은 행을 중복 검토로 분리하고 자동 반영하지 않습니다.',
+                    '기존/파일 내 PJT명·거래처·수주월 일치 또는 ERP 번호 중복은 검토 대상으로 제외합니다. 공식 중복 기준은 미확정이며 기존 건을 덮어쓰지 않습니다.\n'
+                    '매출액·재료비·수수료: 백만원, 목록: 만원. 플랫폼은 Assess, 로봇은 Proposal로 등록합니다. ERP 번호는 후보로 보존하며 별도 매칭해야 합니다. 현재 앱 세션에만 저장됩니다.',
                   ),
                 ),
                 const SizedBox(height: 12),
@@ -3660,30 +3866,28 @@ class _ExcelImportPreviewDialog extends StatelessWidget {
                       DataColumn(label: Text('PJT명')),
                       DataColumn(label: Text('거래처')),
                       DataColumn(label: Text('수주/입고월')),
-                      DataColumn(label: Text('가수주번호')),
+                      DataColumn(label: Text('금액(백만원) / 검증 내용')),
                     ],
-                    rows: const [
-                      DataRow(cells: [
-                        DataCell(Chip(label: Text('신규'))),
-                        DataCell(Text('2차전지 조립라인 로봇 자동화')),
-                        DataCell(Text('LG에너지솔루션')),
-                        DataCell(Text('2026-10 / 2026-11')),
-                        DataCell(Text('등록 시 자동 채번')),
-                      ]),
-                      DataRow(cells: [
-                        DataCell(Chip(label: Text('신규'))),
-                        DataCell(Text('디스플레이 물류 이송 로봇')),
-                        DataCell(Text('LG디스플레이')),
-                        DataCell(Text('2026-11 / 2026-12')),
-                        DataCell(Text('등록 시 자동 채번')),
-                      ]),
-                      DataRow(cells: [
-                        DataCell(Chip(label: Text('중복 검토'))),
-                        DataCell(Text('LGD 베트남 EGL 3D wafer 세정기')),
-                        DataCell(Text('엘지디스플레이')),
-                        DataCell(Text('2026-10 / 2026-11')),
-                        DataCell(Text('기존 RB-2608-021')),
-                      ]),
+                    rows: [
+                      for (final row in result.rows)
+                        DataRow(cells: [
+                          DataCell(
+                              Text('${row.sheet}!${row.row}행 · ${row.status}')),
+                          DataCell(Text(row.values[20])),
+                          DataCell(Text(row.values[18])),
+                          DataCell(
+                              Text('${row.orderMonth} / ${row.arrivalMonth}')),
+                          DataCell(SizedBox(
+                              width: 380,
+                              child: SingleChildScrollView(
+                                child: Text(
+                                    '매출 ${row.values[30]} / 재료비 ${row.values[31]}\n'
+                                    '${[
+                                  ...row.errors,
+                                  ...row.warnings
+                                ].join('\n')}'),
+                              ))),
+                        ])
                     ],
                   ),
                 ),
@@ -3698,18 +3902,22 @@ class _ExcelImportPreviewDialog extends StatelessWidget {
           ),
           FilledButton.icon(
             key: const ValueKey('confirm-excel-import'),
-            onPressed: () => Navigator.pop(context, true),
+            onPressed: result.accepted.isEmpty
+                ? null
+                : () => Navigator.pop(context, true),
             icon: const Icon(Icons.playlist_add_check, size: 18),
-            label: const Text('신규 2건 등록'),
+            label: Text('신규 ${result.accepted.length}건 등록'),
           ),
         ],
       );
 }
 
 class _PipelineRegistrationDialog extends StatefulWidget {
+  final RobinBusinessDivision division;
   final String number;
   final int initialStage;
   const _PipelineRegistrationDialog({
+    required this.division,
     required this.number,
     required this.initialStage,
   });
@@ -3725,6 +3933,9 @@ class _PipelineRegistrationDialogState
   final _project = TextEditingController();
   final _amount = TextEditingController();
   final _material = TextEditingController();
+  final _productCode = TextEditingController();
+  final _productNumber = TextEditingController();
+  final _drawingNumber = TextEditingController();
   String _customer = '현대자동차';
   String _dealer = '본사 직판';
 
@@ -3733,6 +3944,9 @@ class _PipelineRegistrationDialogState
     _project.dispose();
     _amount.dispose();
     _material.dispose();
+    _productCode.dispose();
+    _productNumber.dispose();
+    _drawingNumber.dispose();
     super.dispose();
   }
 
@@ -3747,6 +3961,25 @@ class _PipelineRegistrationDialogState
             child: SingleChildScrollView(
               child: Column(
                 children: [
+                  Text('등록 사업부: ${widget.division.label}'),
+                  const SizedBox(height: 10),
+                  const Text('제품 식별정보 (미확정 값은 비워두세요 · 자동 채번 없음)'),
+                  const SizedBox(height: 10),
+                  for (final item in [
+                    (_productCode, '제품코드', 'registration-product-code'),
+                    (_productNumber, '제품번호', 'registration-product-number'),
+                    (_drawingNumber, '도면번호', 'registration-drawing-number'),
+                  ]) ...[
+                    TextFormField(
+                        key: ValueKey(item.$3),
+                        controller: item.$1,
+                        decoration: InputDecoration(
+                            labelText: item.$2,
+                            isDense: true,
+                            border: const OutlineInputBorder())),
+                    const SizedBox(height: 10),
+                  ],
+                  const SizedBox(height: 10),
                   InputDecorator(
                     decoration: const InputDecoration(
                         labelText: '가수주번호', border: OutlineInputBorder()),
@@ -3820,9 +4053,18 @@ class _PipelineRegistrationDialogState
           FilledButton(
             onPressed: () {
               if (!_key.currentState!.validate()) return;
+              saveProductIdentity(
+                  (widget.division, widget.number),
+                  ProductIdentity(
+                    productCode: _productCode.text.trim(),
+                    productNumber: _productNumber.text.trim(),
+                    drawingNumber: _drawingNumber.text.trim(),
+                  ),
+                  author: robinUserProfile.value.name);
               Navigator.pop(
                 context,
                 _PipelineLead(
+                  division: widget.division,
                   number: widget.number,
                   project: _project.text.trim(),
                   customer: _customer,
@@ -3924,6 +4166,9 @@ class _AssessDetailDialog extends StatelessWidget {
                     padding: const EdgeInsets.all(16),
                     child: Column(
                       children: [
+                        ProductIdentityPanel(
+                            recordKey: (lead.division, lead.number),
+                            readOnly: true),
                         Container(
                           width: double.infinity,
                           padding: const EdgeInsets.all(11),
@@ -3932,7 +4177,10 @@ class _AssessDetailDialog extends StatelessWidget {
                             borderRadius: BorderRadius.circular(8),
                           ),
                           child: Text(
-                            '수주물동관리 양식의 A~AU 47열 순서입니다. 업무 항목은 44개이며, 원본에서 제목이 없는 AS~AU 3열은 계산 보조열로 구분했습니다.',
+                            '수주물동관리 양식의 A~AU 47열 순서입니다. 업무 항목은 44개이며, 원본에서 제목이 없는 AS~AU 3열은 계산 보조열로 구분했습니다.\n'
+                            '목록은 만원, 상세 매출액·재료비는 백만원입니다. 원본 판가의 단위와 조정금액 계산 규칙은 확인이 필요합니다.\n'
+                            '${lead.trafficValues == null ? '기존 시연 데이터의 분류·등급은 예시입니다.' : '입력 출처: ${lead.trafficSource}\n업로드 ERP 번호 후보: ${lead.trafficValues![3].isEmpty ? '미입력' : lead.trafficValues![3]} · 별도 수동 매칭 필요\n원본 값은 보존되며 수식 문자열은 계산하지 않습니다.'}'
+                            '\n현재 ERP 매칭: ${lead.erpOrderNumber ?? '미매칭'}${lead.erpOrderNumber == null ? '' : ' · 수동 입력/시연 값 · ERP 검증 전'}',
                             style: RobinTheme.bodySm,
                           ),
                         ),
@@ -4039,105 +4287,8 @@ class _AssessField {
   const _AssessField(this.section, this.label, this.value);
 }
 
-class _DropInfoDialog extends StatefulWidget {
-  final _PipelineLead lead;
-  const _DropInfoDialog({required this.lead});
-
-  @override
-  State<_DropInfoDialog> createState() => _DropInfoDialogState();
-}
-
-class _DropInfoDialogState extends State<_DropInfoDialog> {
-  final _key = GlobalKey<FormState>();
-  final _competitor = TextEditingController();
-  final _product = TextEditingController();
-  String _reason = '가격 경쟁력';
-
-  @override
-  void dispose() {
-    _competitor.dispose();
-    _product.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) => RobinAlertDialog(
-        title: const Text('Closed Lost · Drop 정보'),
-        content: SizedBox(
-          width: 500,
-          child: Form(
-            key: _key,
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text('${widget.lead.number} · ${widget.lead.project}',
-                    style: RobinTheme.headingSm),
-                const SizedBox(height: 12),
-                DropdownButtonFormField<String>(
-                  initialValue: _reason,
-                  decoration: const InputDecoration(
-                      labelText: 'Drop 사유', border: OutlineInputBorder()),
-                  items: const [
-                    '가격 경쟁력',
-                    '납기 조건',
-                    '사양 미충족',
-                    '경쟁사 선정',
-                    '고객 투자 취소',
-                    '기타',
-                  ]
-                      .map((item) =>
-                          DropdownMenuItem(value: item, child: Text(item)))
-                      .toList(),
-                  onChanged: (value) =>
-                      setState(() => _reason = value ?? _reason),
-                ),
-                const SizedBox(height: 10),
-                TextFormField(
-                  controller: _competitor,
-                  decoration: const InputDecoration(
-                      labelText: '경쟁사', border: OutlineInputBorder()),
-                  validator: (value) =>
-                      (value?.trim().isEmpty ?? true) ? '경쟁사를 입력해주세요.' : null,
-                ),
-                const SizedBox(height: 10),
-                TextFormField(
-                  controller: _product,
-                  decoration: const InputDecoration(
-                      labelText: '경쟁 제품/사양', border: OutlineInputBorder()),
-                ),
-              ],
-            ),
-          ),
-        ),
-        actions: [
-          TextButton(
-              onPressed: () => Navigator.pop(context), child: const Text('취소')),
-          FilledButton(
-            style:
-                FilledButton.styleFrom(backgroundColor: RobinTheme.signalRed),
-            onPressed: () {
-              if (!_key.currentState!.validate()) return;
-              Navigator.pop(
-                context,
-                _DropInfo(
-                    _reason, _competitor.text.trim(), _product.text.trim()),
-              );
-            },
-            child: const Text('수주 실패 저장'),
-          ),
-        ],
-      );
-}
-
-class _DropInfo {
-  final String reason;
-  final String competitor;
-  final String product;
-  const _DropInfo(this.reason, this.competitor, this.product);
-}
-
 class _PipelineLead {
+  final RobinBusinessDivision division;
   final String number;
   final String project;
   final String customer;
@@ -4157,8 +4308,12 @@ class _PipelineLead {
   final bool erpLinked;
   final String? erpOrderNumber;
   final String? dropReason;
+  final String? resultStatus;
+  final List<String>? trafficValues;
+  final String trafficSource;
 
   const _PipelineLead({
+    this.division = RobinBusinessDivision.robot,
     required this.number,
     required this.project,
     required this.customer,
@@ -4178,28 +4333,38 @@ class _PipelineLead {
     this.erpLinked = false,
     this.erpOrderNumber,
     this.dropReason,
+    this.resultStatus,
+    this.trafficValues,
+    this.trafficSource = '',
   });
 
   double get materialRatio => amount == 0 ? 0 : materialCost / amount * 100;
 
   _PipelineLead copyWith({
+    RobinBusinessDivision? division,
     String? number,
     int? stage,
     bool? erpLinked,
     String? erpOrderNumber,
     int? orderChanges,
     String? dropReason,
+    String? project,
+    String? customer,
+    double? amount,
+    double? materialCost,
+    int? quantity,
   }) =>
       _PipelineLead(
+        division: division ?? this.division,
         number: number ?? this.number,
-        project: project,
-        customer: customer,
+        project: project ?? this.project,
+        customer: customer ?? this.customer,
         dealer: dealer,
         owner: owner,
         stage: stage ?? this.stage,
-        amount: amount,
-        materialCost: materialCost,
-        quantity: quantity,
+        amount: amount ?? this.amount,
+        materialCost: materialCost ?? this.materialCost,
+        quantity: quantity ?? this.quantity,
         orderMonth: orderMonth,
         arrivalMonth: arrivalMonth,
         productType: productType,
@@ -4210,6 +4375,9 @@ class _PipelineLead {
         erpLinked: erpLinked ?? this.erpLinked,
         erpOrderNumber: erpOrderNumber ?? this.erpOrderNumber,
         dropReason: dropReason ?? this.dropReason,
+        resultStatus: resultStatus,
+        trafficValues: trafficValues,
+        trafficSource: trafficSource,
       );
 }
 

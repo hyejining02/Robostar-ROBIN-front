@@ -6,8 +6,11 @@ import 'package:robin_portal/screens/pipeline_registration_screen.dart';
 import 'package:robin_portal/screens/portal_module_screen.dart';
 import 'package:robin_portal/screens/story_line_screens.dart';
 import 'package:robin_portal/services/project_todo_service.dart';
+import 'package:robin_portal/services/desktop_file_service.dart';
+import 'package:robin_portal/services/traffic_excel_service.dart';
 import 'package:robin_portal/utils/search_query.dart';
 import 'package:robin_portal/widgets/user_profile.dart';
+import 'helpers/pipeline_navigation.dart';
 
 void main() {
   Future<void> setDesktopSize(WidgetTester tester) async {
@@ -173,7 +176,7 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('파이프라인 단계별 입력 화면을 연다', (tester) async {
+  testWidgets('파이프라인 단계 카드를 없애고 목록 상태 검색으로 입력 화면을 연다', (tester) async {
     await setDesktopSize(tester);
     await tester.pumpWidget(
       const MaterialApp(
@@ -182,16 +185,29 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    await tester.tap(find.text('단계별 입력'));
-    await tester.pumpAndSettle();
-    expect(find.text('Assess · 물동 · 등록가능'), findsOneWidget);
+    for (var stage = 0; stage < 5; stage++) {
+      expect(find.byKey(ValueKey('pipeline-stage-$stage')), findsNothing);
+    }
+    expect(find.text('단계별 입력'), findsNothing);
+    expect(find.byKey(const ValueKey('pipeline-list-status-header')),
+        findsOneWidget);
+    expect(find.text('전체 상태'), findsOneWidget);
     expect(find.text('수주 중단'), findsNothing);
-    expect(find.text('Proposal · 컨셉설계 · 등록가능'), findsOneWidget);
-    expect(find.text('Negotiation · 원가/결재 · 전환'), findsOneWidget);
+    expect(find.text('Proposal · 컨셉설계 · 등록가능'), findsNothing);
+    expect(find.text('Negotiation · 원가/결재 · 전환'), findsNothing);
+    await selectPipelineStatus(tester, 'Proposal', number: 'RB-2608-014');
+    expect(find.text('Specification'), findsOneWidget);
+    expect(find.byKey(const ValueKey('pipeline-overview-RB-2608-009')),
+        findsNothing);
+    expect(find.text('수주 입력·상세 · RB-2608-014'), findsOneWidget);
+    await selectPipelineStatus(tester, 'Negotiation');
+    expect(find.text('ROBIN 결재시스템'), findsOneWidget);
+    expect(find.text('수주 입력·상세 · RB-2608-009'), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
 
   testWidgets('Assess 물동은 상세 버튼에서만 47개 전체 항목을 연다', (tester) async {
+    usePlatformPipeline();
     await setDesktopSize(tester);
     await tester.pumpWidget(
       const MaterialApp(
@@ -201,12 +217,14 @@ void main() {
     await tester.pumpAndSettle();
 
     // 일반 행 선택은 선택 상태만 바꾸고 상세창을 열지 않는다.
-    await tester.tap(find.text('LGD 베트남 EGL 3D wafer 세정기'));
+    await tester
+        .tap(find.byKey(const ValueKey('pipeline-overview-RB-2608-PL01')));
     await tester.pumpAndSettle();
     expect(find.text('Assess 수주물동 전체 상세'), findsNothing);
+    await openPlatformTraffic(tester);
 
     await tester.tap(
-      find.byKey(const ValueKey('assess-detail-button-RB-2608-021')),
+      find.byKey(const ValueKey('assess-detail-button-RB-2608-PL01')),
     );
     await tester.pumpAndSettle();
 
@@ -233,20 +251,48 @@ void main() {
     ]) {
       expect(find.text(field), findsWidgets);
     }
-    expect(find.text('미매칭 (가수주 RB-2608-021)'), findsOneWidget);
+    expect(find.text('미매칭 (가수주 RB-2608-PL01)'), findsOneWidget);
     expect(find.text('재료비율'), findsWidgets);
     expect(tester.takeException(), isNull);
   });
 
   testWidgets('물동 Excel 검증 후 신규 행에 가수주번호를 자동 채번한다', (tester) async {
+    usePlatformPipeline();
     await setDesktopSize(tester);
+    List<Object?> row(String project, String customer) {
+      final cells = List<Object?>.filled(47, null);
+      cells[1] = '2026-10';
+      cells[2] = '2026-11';
+      cells[6] = '플랫폼';
+      cells[18] = customer;
+      cells[20] = project;
+      cells[24] = 'WON';
+      cells[28] = 4;
+      cells[30] = 323;
+      cells[31] = 239.83;
+      cells[35] = '업로드 원본 비고';
+      return cells;
+    }
+
+    final bytes = DesktopFileService.createWorkbookBytes(
+        sheetName: '물동',
+        headers: trafficHeaders,
+        rows: [
+          row('2차전지 조립라인 로봇 자동화', 'LG에너지솔루션'),
+          row('디스플레이 물류 이송 로봇', 'LG디스플레이'),
+          row('2차전지 조립라인 로봇 자동화', 'LG에너지솔루션'),
+        ]);
     await tester.pumpWidget(
-      const MaterialApp(
-        home: Scaffold(body: PipelineRegistrationView()),
+      MaterialApp(
+        home: Scaffold(
+            body: PipelineRegistrationView(
+          loadTrafficWorkbook: () async => (name: '검증물동.xlsx', bytes: bytes),
+        )),
       ),
     );
     await tester.pumpAndSettle();
 
+    await openPlatformTraffic(tester);
     await tester.tap(find.text('물동 Excel 불러오기'));
     await tester.pumpAndSettle();
     expect(find.text('물동 Excel 업로드 검증'), findsOneWidget);
@@ -260,11 +306,14 @@ void main() {
     expect(find.text('물동 Excel 업로드 검증'), findsNothing);
     expect(find.text('2차전지 조립라인 로봇 자동화'), findsWidgets);
     expect(find.text('디스플레이 물류 이송 로봇'), findsWidgets);
-    expect(find.text('LGD 베트남 EGL 3D wafer 세정기'), findsOneWidget);
+    expect(find.text('플랫폼 EFEM 모듈 구축'), findsOneWidget);
+    // Imported million-won values must become manwon only once.
+    expect(find.text('32,300만원'), findsWidgets);
     expect(tester.takeException(), isNull);
   });
 
   testWidgets('가수주번호에 ERP 공식 수주번호를 매칭한다', (tester) async {
+    usePlatformPipeline();
     await setDesktopSize(tester);
     await tester.pumpWidget(
       const MaterialApp(
@@ -273,14 +322,16 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    await tester.tap(find.text('LGD 베트남 EGL 3D wafer 세정기'));
+    await tester
+        .tap(find.byKey(const ValueKey('pipeline-overview-RB-2608-PL01')));
     await tester.pumpAndSettle();
     expect(find.text('Assess 수주물동 전체 상세'), findsNothing);
+    await openPlatformTraffic(tester);
 
     await tester.tap(find.byKey(const ValueKey('open-erp-order-match')));
     await tester.pumpAndSettle();
     expect(find.text('ERP 공식 수주번호 매칭'), findsOneWidget);
-    expect(find.text('RB-2608-021'), findsWidgets);
+    expect(find.text('RB-2608-PL01'), findsWidgets);
 
     await tester.enterText(
       find.byKey(const ValueKey('erp-order-number-input')),
@@ -289,9 +340,9 @@ void main() {
     await tester.tap(find.byKey(const ValueKey('confirm-erp-order-match')));
     await tester.pumpAndSettle();
 
-    expect(find.text('RB-2608-021\nSO-2608-099'), findsOneWidget);
+    expect(find.text('RB-2608-PL01\nSO-2608-099'), findsOneWidget);
     await tester.tap(
-      find.byKey(const ValueKey('assess-detail-button-RB-2608-021')),
+      find.byKey(const ValueKey('assess-detail-button-RB-2608-PL01')),
     );
     await tester.pumpAndSettle();
     expect(find.text('Assess 수주물동 전체 상세'), findsOneWidget);
@@ -308,16 +359,16 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    expect(find.text('수주를 선택하면'), findsOneWidget);
-    await tester.tap(find.byKey(const ValueKey('pipeline-stage-1')));
+    expect(find.byKey(const ValueKey('pipeline-change-stage')), findsOneWidget);
+    await selectPipelineStatus(tester, 'Proposal', number: 'RB-2608-014');
     await tester.pumpAndSettle();
-    expect(find.text('컨셉도면 사양 입력'), findsOneWidget);
+    expect(find.text('Specification'), findsOneWidget);
     expect(find.text('도면 협의 채널'), findsOneWidget);
 
-    await tester.tap(find.byKey(const ValueKey('pipeline-stage-2')));
+    await selectPipelineStatus(tester, 'Negotiation');
     await tester.pumpAndSettle();
     expect(find.text('특주 제품 사양'), findsOneWidget);
-    expect(find.textContaining('ERP 제품코드 중복 검증'), findsOneWidget);
+    expect(find.textContaining('제품코드 생성 규칙 미확정'), findsOneWidget);
     expect(find.text('ROBIN 결재시스템'), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
@@ -331,7 +382,7 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    await tester.tap(find.byKey(const ValueKey('pipeline-stage-1')));
+    await selectPipelineStatus(tester, 'Proposal', number: 'RB-2608-014');
     await tester.pumpAndSettle();
     await tester.ensureVisible(
       find.byKey(const ValueKey('proposal-collaboration-RB-2608-014')),
@@ -375,7 +426,11 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('Proposal 도면·댓글 협업'), findsNothing);
     expect(find.text('Layout_Concept_Rev04.pdf · Rev.04'), findsOneWidget);
-    expect(find.text('3건'), findsOneWidget);
+    expect(
+        tester
+            .widget<Text>(find.byKey(const ValueKey('proposal-comment-count')))
+            .data,
+        '3건');
     expect(tester.takeException(), isNull);
   });
 
@@ -388,7 +443,7 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    await tester.tap(find.byKey(const ValueKey('pipeline-stage-2')));
+    await selectPipelineStatus(tester, 'Negotiation');
     await tester.pumpAndSettle();
     expect(find.text('유사 모델 단가 근거 TOP 3'), findsOneWidget);
     expect(find.text('재료비율 결재선 · 임시 기준'), findsOneWidget);
@@ -519,7 +574,8 @@ void main() {
     await tester
         .tap(find.byKey(const ValueKey('pipeline-overview-RB-2608-014')));
     await tester.pumpAndSettle();
-    expect(find.textContaining('Negotiation · 원가/결재 · 전환'), findsOneWidget);
+    expect(find.text('수주 입력·상세 · RB-2608-014'), findsOneWidget);
+    expect(find.text('Specification'), findsOneWidget);
 
     await tester.pumpWidget(const MaterialApp(home: OrderManagementScreen()));
     await tester.pumpAndSettle();
@@ -548,23 +604,39 @@ void main() {
     expect(find.text('SO-2608-014'), findsWidgets);
     expect(find.text('SO-2608-011'), findsOneWidget);
     expect(find.text('SO-2608-009'), findsOneWidget);
+    expect(
+      find.byKey(
+        const ValueKey('project-summary-signal-PJ-2608-001-설계'),
+      ),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(
+        const ValueKey('project-order-signal-SO-2608-014-구매'),
+      ),
+      findsOneWidget,
+    );
 
+    await tester.ensureVisible(find.text('구매').last);
+    await tester.pumpAndSettle();
     await tester.tap(find.text('구매').last);
     await tester.pumpAndSettle();
     expect(find.text('B-001'), findsOneWidget);
     expect(find.text('B-010'), findsOneWidget);
     expect(find.text('구매 진행상태'), findsOneWidget);
+    expect(find.text('일반납재고'), findsNWidgets(4));
+    expect(find.text('장납기재고'), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('프로젝트 예시 30건을 내부 스크롤하고 검색한다', (tester) async {
+  testWidgets('프로젝트 예시 32건을 내부 스크롤하고 검색한다', (tester) async {
     await setDesktopSize(tester);
     await tester.pumpWidget(
       const MaterialApp(home: ProjectManagementScreen()),
     );
     await tester.pumpAndSettle();
 
-    expect(find.text('프로젝트 현황 — 30건'), findsOneWidget);
+    expect(find.text('프로젝트 현황 — 32건'), findsOneWidget);
     final projectList = tester.widget<SingleChildScrollView>(
       find.byKey(const ValueKey('project-list-scroll')),
     );
@@ -597,12 +669,17 @@ void main() {
     for (final stage in ['설계', '구매', '생산', '품질', '물류', '마감']) {
       expect(find.text(stage), findsWidgets);
     }
+    await tester.ensureVisible(
+        find.byKey(const ValueKey('project-stage-SO-2608-014-설계')));
+    await tester.pumpAndSettle();
     await tester
         .longPress(find.byKey(const ValueKey('project-stage-SO-2608-014-설계')));
     await tester.pumpAndSettle();
     expect(find.textContaining('담당자: 이설계 책임'), findsOneWidget);
     expect(find.textContaining('완료일:'), findsOneWidget);
 
+    await tester.ensureVisible(find.text('품질').last);
+    await tester.pumpAndSettle();
     await tester.tap(find.text('품질').last);
     await tester.pumpAndSettle();
     expect(find.textContaining('IQC'), findsWidgets);
@@ -652,6 +729,8 @@ void main() {
     );
     await tester.pumpAndSettle();
 
+    await tester.ensureVisible(find.text('물류').last);
+    await tester.pumpAndSettle();
     await tester.tap(find.text('물류').last);
     await tester.pumpAndSettle();
 
@@ -700,20 +779,32 @@ void main() {
     await tester.pumpAndSettle();
     await tester.enterText(
       find.byKey(const ValueKey('project-memo-input')),
-      '장기재고 확인 결과를 오늘 공유해주세요.',
+      '장납기재고 확인 결과를 오늘 공유해주세요.',
     );
     await tester.tap(find.byKey(const ValueKey('add-project-memo')));
     await tester.pumpAndSettle();
-    expect(find.text('장기재고 확인 결과를 오늘 공유해주세요.'), findsOneWidget);
+    expect(find.text('장납기재고 확인 결과를 오늘 공유해주세요.'), findsOneWidget);
     await tester.tap(find.byKey(const ValueKey('save-project-memos')));
     await tester.pumpAndSettle();
     expect(projectTodoItems.value, hasLength(1));
+
+    final previousProfile = robinUserProfile.value;
+    addTearDown(() => robinUserProfile.value = previousProfile);
+    robinUserProfile.value = RobinUserProfile(
+        name: '김구매',
+        rank: '팀장',
+        department: previousProfile.department,
+        email: previousProfile.email,
+        phone: previousProfile.phone,
+        username: previousProfile.username,
+        role: previousProfile.role,
+        departmentPermission: previousProfile.departmentPermission);
 
     await tester.pumpWidget(
       MaterialApp(home: DashboardScreen(onNavigate: (_) {})),
     );
     await tester.pumpAndSettle();
-    expect(find.textContaining('장기재고 확인 결과를 오늘 공유해주세요.'), findsOneWidget);
+    expect(find.textContaining('장납기재고 확인 결과를 오늘 공유해주세요.'), findsOneWidget);
     expect(find.textContaining('김구매 팀장'), findsWidgets);
     expect(tester.takeException(), isNull);
   });
@@ -740,10 +831,10 @@ void main() {
         scaled(const PortalModuleScreen(type: PortalModule.pipeline)));
     await tester.pumpAndSettle();
     expect(tester.takeException(), isNull);
-    await tester.tap(find.byKey(const ValueKey('pipeline-stage-1')));
+    await selectPipelineStatus(tester, 'Proposal', number: 'RB-2608-014');
     await tester.pumpAndSettle();
     expect(tester.takeException(), isNull);
-    await tester.tap(find.byKey(const ValueKey('pipeline-stage-2')));
+    await selectPipelineStatus(tester, 'Negotiation');
     await tester.pumpAndSettle();
     expect(tester.takeException(), isNull);
 
@@ -757,11 +848,13 @@ void main() {
   });
 
   testWidgets('데스크톱 창에서 세 관리 표의 오른쪽 열이 가려지지 않는다', (tester) async {
+    usePlatformPipeline();
     Future<void> expectTableFits(Widget screen, Size size,
         {bool allowInternalScroll = false}) async {
       await tester.binding.setSurfaceSize(size);
       await tester.pumpWidget(MaterialApp(home: Scaffold(body: screen)));
       await tester.pumpAndSettle();
+      if (screen is PipelineRegistrationView) await openPlatformTraffic(tester);
       final controlledHorizontalScrolls = tester
           .widgetList<SingleChildScrollView>(
             find.byType(SingleChildScrollView),

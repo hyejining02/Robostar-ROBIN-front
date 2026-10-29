@@ -1,9 +1,12 @@
 import 'package:flutter/material.dart';
+import 'order_workflow_screen.dart';
+import 'design_work_management_screen.dart';
 import 'package:intl/intl.dart';
 
 import '../models/access_control.dart';
 import '../models/order_project.dart';
 import '../services/project_todo_service.dart';
+import '../services/business_division_scope.dart';
 import '../theme/robin_theme.dart';
 import '../widgets/app_bar.dart';
 import '../widgets/user_profile.dart';
@@ -530,7 +533,7 @@ class _TodoPanelState extends State<_TodoPanel> {
         '물류 자동화 프로젝트',
         '구매',
         '생산',
-        'BOM 장기재고 2건 확인 및 생산 예정일 입력',
+        'BOM 장납기재고 2건 확인 및 생산 예정일 입력',
         '수주 Spec. 변경: 컨베이어 길이 12m → 15m',
         '오늘 14:00',
         division: RobinBusinessDivision.robot),
@@ -580,7 +583,12 @@ class _TodoPanelState extends State<_TodoPanel> {
       }
     }
     final allItems = [
-      ...projectTodoItems.value.map(_TodoData.fromProject),
+      ...projectTodoItems.value
+          .where((t) => [
+                robinUserProfile.value.name,
+                '${robinUserProfile.value.name} ${robinUserProfile.value.rank}'
+              ].contains(t.assignee))
+          .map(_TodoData.fromProject),
       ..._items,
     ];
     final divisionItems = allItems
@@ -684,7 +692,42 @@ class _TodoPanelState extends State<_TodoPanel> {
                       final completed =
                           _completedTodoIds.value.contains(item.id);
                       return InkWell(
-                        onTap: () => widget.onNavigate(3),
+                        onTap: () {
+                          if (item.workflowSection != null) {
+                            if (BusinessDivisionScope.current()
+                                .allowed
+                                .contains(item.division)) {
+                              selectedBusinessDivision.value = item.division;
+                            }
+                            Navigator.push(
+                                context,
+                                MaterialPageRoute(
+                                    builder: (_) => OrderWorkflowScreen(
+                                            recordKey: (
+                                              item.division,
+                                              item.orderNo
+                                            ),
+                                            projectName: item.projectName,
+                                            initialSection:
+                                                item.workflowSection!,
+                                            initialRecordId:
+                                                item.workflowRecordId)));
+                          } else if (item.specChange.startsWith('설계 검토 요청서') ||
+                              item.specChange.startsWith('플랫폼 검토 상태 알림')) {
+                            if (BusinessDivisionScope.current()
+                                .allowed
+                                .contains(item.division)) {
+                              selectedBusinessDivision.value = item.division;
+                            }
+                            Navigator.push(
+                                context,
+                                MaterialPageRoute(
+                                    builder: (_) => DesignWorkManagementScreen(
+                                        initialReviewNumber: item.orderNo)));
+                          } else {
+                            widget.onNavigate(item.navigationIndex);
+                          }
+                        },
                         child: Container(
                           padding: const EdgeInsets.fromLTRB(10, 8, 12, 8),
                           decoration: BoxDecoration(
@@ -1078,10 +1121,16 @@ class _TodoData {
   final RobinBusinessDivision division;
 
   String get id => '$orderNo::$task';
+  final int navigationIndex;
+  final String? workflowSection;
+  final String? workflowRecordId;
 
   const _TodoData(this.priority, this.orderNo, this.projectName,
       this.previousStage, this.nextStage, this.task, this.specChange, this.due,
-      {required this.division});
+      {required this.division,
+      this.navigationIndex = 3,
+      this.workflowSection,
+      this.workflowRecordId});
 
   factory _TodoData.fromProject(ProjectTodoItem item) => _TodoData(
         '신규',
@@ -1090,9 +1139,12 @@ class _TodoData {
         item.stage,
         item.stage,
         '[${item.assignee}] ${item.task}',
-        '프로젝트 메모 자동 생성 · ${item.createdBy}',
+        '${item.sourceLabel} · ${item.createdBy}',
         '신규',
         division: item.division,
+        navigationIndex: item.navigationIndex,
+        workflowSection: item.workflowSection,
+        workflowRecordId: item.workflowRecordId,
       );
 }
 

@@ -80,8 +80,8 @@ class _AppShellState extends State<AppShell> {
 
   static const _menuLabels = [
     'Home',
-    '파이프라인 등록',
-    '수주관리',
+    '파이프라인',
+    '수주 현황·재료비',
     '프로젝트 관리',
     'AX Board',
     'AI Assistant',

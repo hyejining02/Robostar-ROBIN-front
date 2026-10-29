@@ -45,7 +45,8 @@ class RobinTheme {
   // -- 타이포그래피 ---
   // -- 폰트 : LG스마트체 --
 
-  static const String fontFamily = 'Malgun Gothic'; // Windows 맑은 고딕
+  // 고객사 제공 설치본을 사용하는 Windows 시스템 폰트입니다.
+  static const String fontFamily = 'LG Smart_H2.0';
 
   static TextStyle get headingLg => const TextStyle(
         fontSize: 18,
